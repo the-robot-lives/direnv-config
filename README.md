@@ -618,6 +618,96 @@ _dc:
 
 Keys not in `flatten` are exported as `PREFIX_PATH_TO_KEY` (uppercase, dots→underscores).
 
+#### Auto-Derive Convention
+
+When a named config's name matches the env var prefix, no flatten rule is needed. The default export behavior is:
+
+```
+{CONFIG_NAME}_{KEY_PATH} → uppercase, dots/nested keys joined with underscores
+```
+
+Examples (no flatten rules required):
+```
+infisical.host              → INFISICAL_HOST
+livebook.postgres_password  → LIVEBOOK_POSTGRES_PASSWORD
+telemetry.namespace         → TELEMETRY_NAMESPACE
+bob.redis_password          → BOB_REDIS_PASSWORD
+```
+
+Only write explicit flatten rules for exceptions:
+```yaml
+flatten:
+  cluster.kubeconfig: KUBECONFIG              # want KUBECONFIG, not CLUSTER_KUBECONFIG
+  cluster.context: KUBECTX_CURRENT_CONTEXT    # non-obvious name
+  cf.zone_id_trl: CF_ZONE_ID_THEROBOTLIVES   # key name doesn't match env var suffix
+```
+
+#### Wildcard Flatten Rules
+
+Wildcards remap an entire sub-tree's prefix. The `*` matches all remaining path segments, joined with underscores:
+
+```yaml
+flatten:
+  tab.*: TAB_*                    # tab.theme → TAB_THEME
+  secrets.infisical.*: INFISICAL_*  # secrets.infisical.host → INFISICAL_HOST
+  secrets.smtp.*: SMTP_*           # secrets.smtp.host → SMTP_HOST
+```
+
+For nested paths, the wildcard expands through all levels:
+```
+secrets.infisical.postgres_password  →  INFISICAL_POSTGRES_PASSWORD
+                   ^^^^^^^^^^^^^^^^      ^^^^^^^^^^^^^^^^^^^^^^^^
+                   matched by *          expanded into INFISICAL_*
+```
+
+#### Prefix-Stripping Wildcard
+
+To export keys without any config-name prefix, use an empty target:
+
+```yaml
+flatten:
+  auto.*: "*"       # auto.erpnext_db_password → ERPNEXT_DB_PASSWORD (no AUTO_ prefix)
+```
+
+Alternatively, use the structured `export` list with a per-config prefix override:
+
+```yaml
+export:
+  - infra
+  - cluster
+  - cf
+  - secrets
+  - { name: auto, prefix: "" }    # strip the auto_ prefix entirely
+  - tab
+```
+
+#### Aliases
+
+Aliases create env vars whose values mirror another env var. They are processed **after** flatten rules resolve, so they reference final env var names — not YAML paths.
+
+```yaml
+# _dc/base.yaml
+aliases:
+  SMTP_PASSWORD: SENDGRID_API_KEY                # SMTP_PASSWORD gets same value as SENDGRID_API_KEY
+  K8_INFISICAL_HOST: INFISICAL_HOST              # alias for backward compat
+  K8_INFISICAL_CLIENT_ID: OPERATOR_CLIENT_ID
+  K8_INFISICAL_CLIENT_SECRET: OPERATOR_CLIENT_SECRET
+  HF_TOKEN: HF_READ_TOKEN                        # dual-name token
+  GITHUB_CLIENT_SECRET: GITHUB_TOKEN             # three names, one value
+  GITHUB_API_KEY: GITHUB_TOKEN
+  DOCKER_USER: DOCKERHUB_USER
+  DOCKER_PASSWORD: DOCKERHUB_PASSWORD
+```
+
+**Resolution order:**
+1. Flatten rules resolve YAML paths → env var names + values
+2. Aliases copy values from resolved env vars to new names
+3. `dc env` emits all resolved vars + aliases as `export` lines
+
+Aliases are the correct mechanism for cross-references that span named configs (where YAML anchors don't work) and for backward-compatible env var names.
+
+**Child override:** A child `.envrc` can add aliases in its own `_dc` config. Child aliases are deep-merged with parent aliases — a child can shadow a parent's alias by redefining it, or add new ones.
+
 ## Install
 
 Three things need to happen, each serving a different purpose:

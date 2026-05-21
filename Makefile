@@ -80,15 +80,13 @@ install-cli:
 	@echo "==> Installing CLI binary"
 	@mkdir -p $(INSTALL_DIR)
 	@if [ -f "$(RELEASE_BIN)" ]; then \
-		cp "$(RELEASE_BIN)" "$(INSTALL_DIR)/dc"; \
-		chmod +x "$(INSTALL_DIR)/dc"; \
+		install -m 755 "$(RELEASE_BIN)" "$(INSTALL_DIR)/dc"; \
 		echo "    $(INSTALL_DIR)/dc ($$($(RELEASE_BIN) --version 2>/dev/null || echo 'built'))"; \
 	else \
 		echo "    ⚠ Binary not found — run 'make compile' first"; \
 	fi
 	@if [ -f bin/dc-init ]; then \
-		cp bin/dc-init "$(INSTALL_DIR)/dc-init"; \
-		chmod +x "$(INSTALL_DIR)/dc-init"; \
+		install -m 755 bin/dc-init "$(INSTALL_DIR)/dc-init"; \
 		echo "    $(INSTALL_DIR)/dc-init"; \
 	fi
 
