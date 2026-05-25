@@ -92,6 +92,14 @@ enum Commands {
     Status,
     /// List all known config stores
     List,
+    /// Permanently delete a named config (or the entire store if no name given)
+    Purge {
+        /// Config name to purge (omit to purge entire store)
+        name: Option<String>,
+    },
+    /// Output completion candidates for purge (hidden)
+    #[command(name = "__complete-purge", hide = true)]
+    CompletePurge,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -126,6 +134,12 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::List => {
             cmd::list::run()
+        }
+        Commands::Purge { name } => {
+            cmd::purge::run(name.as_deref())
+        }
+        Commands::CompletePurge => {
+            cmd::purge::completions()
         }
     }
 }

@@ -8,3 +8,4 @@ pub mod bump;
 pub mod init;
 pub mod status;
 pub mod list;
+pub mod purge;

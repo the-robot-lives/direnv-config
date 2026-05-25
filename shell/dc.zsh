@@ -9,6 +9,7 @@ _dc() {
     'set:Set a config value'
     'unset:Remove a key from a named config'
     'prune:Remove named configs or branches'
+    'purge:Permanently delete a config or entire store'
     'env:Export resolved config as shell env vars'
     'bump:Bump the version counter'
     'init:Initialize a config store'
@@ -30,6 +31,11 @@ _dc() {
       case $words[1] in
         yaml|get|set|unset|prune)
           _arguments '1:config name:' '*:args:'
+          ;;
+        purge)
+          local -a configs
+          configs=(${(f)"$(dc __complete-purge 2>/dev/null)"})
+          _arguments '1:config name:(${configs})'
           ;;
       esac
       ;;
