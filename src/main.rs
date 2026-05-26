@@ -96,6 +96,9 @@ enum Commands {
     Purge {
         /// Config name to purge (omit to purge entire store)
         name: Option<String>,
+        /// Hard delete — remove files without writing tombstones
+        #[arg(long)]
+        hard: bool,
     },
     /// List secret key names per config
     Secrets {
@@ -143,8 +146,8 @@ fn main() -> anyhow::Result<()> {
         Commands::Secrets { json } => {
             cmd::secrets::run(json)
         }
-        Commands::Purge { name } => {
-            cmd::purge::run(name.as_deref())
+        Commands::Purge { name, hard } => {
+            cmd::purge::run(name.as_deref(), hard)
         }
         Commands::CompletePurge => {
             cmd::purge::completions()

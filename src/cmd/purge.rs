@@ -8,7 +8,7 @@ fn config_exists_in_parent(store: &std::path::Path, name: &str) -> bool {
     })
 }
 
-pub fn run(name: Option<&str>) -> Result<()> {
+pub fn run(name: Option<&str>, hard: bool) -> Result<()> {
     let cwd = std::env::current_dir()?;
     let store = crate::store::layout::store_path(&cwd);
 
@@ -31,8 +31,8 @@ pub fn run(name: Option<&str>) -> Result<()> {
                     .with_context(|| format!("failed to remove config dir: {}", config_dir.display()))?;
             }
 
-            if exists_in_parent {
-                // Write tombstone as a layer file so resolve_active produces it in .active
+            if exists_in_parent && !hard {
+                // Write tombstone so resolve_active suppresses the parent's config
                 crate::store::layout::ensure_config(&store, n)?;
                 let layer = crate::store::layout::layer_path(&store, n, "base");
                 std::fs::write(&layer, "_dc_pruned: true\n")
@@ -41,7 +41,14 @@ pub fn run(name: Option<&str>) -> Result<()> {
             }
 
             crate::store::meta::update_configs_list(&store)?;
-            eprintln!("purged config '{}'", n);
+
+            if hard {
+                eprintln!("hard-purged config '{}' (no tombstone)", n);
+            } else if exists_in_parent {
+                eprintln!("purged config '{}' (tombstone written — parent config hidden)", n);
+            } else {
+                eprintln!("purged config '{}'", n);
+            }
         }
         None => {
             std::fs::remove_dir_all(&store)
