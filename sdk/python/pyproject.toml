@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.10.0,<0.11.0"]
+build-backend = "uv_build"
 
 [project]
 name = "noizu-direnv-config"
@@ -37,8 +37,9 @@ Documentation = "https://github.com/noizu/direnv-config#readme"
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "mypy"]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/direnv_config"]
+[tool.uv.build-backend]
+module-root = "src"
+module-name = "direnv_config"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

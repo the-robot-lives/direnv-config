@@ -9,6 +9,7 @@ RELEASE_BIN  := target/release/dc
 
 .PHONY: compile test install uninstall check doctor help clean
 .PHONY: install-direnv-lib install-shell-hook install-cli
+.PHONY: sdk-test sdk-build sdk-publish sdk-public sdk-clean
 
 help:
 	@echo "Targets:"
@@ -19,6 +20,12 @@ help:
 	@echo "  check      Verify installation"
 	@echo "  doctor     Diagnose common issues"
 	@echo "  clean      Remove build artifacts"
+	@echo ""
+	@echo "SDK targets (fan out to sdk/{elixir,php,python,rust,typescript}):"
+	@echo "  sdk-test     Run tests for all SDKs"
+	@echo "  sdk-build    Build all SDKs"
+	@echo "  sdk-publish  Publish all SDKs"
+	@echo "  sdk-clean    Clean all SDK build artifacts"
 
 # --- Build ---
 
@@ -183,6 +190,22 @@ doctor: check
 		echo "  ✗ rustc: not installed"; \
 		echo "    Install: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"; \
 	fi
+
+# --- SDK orchestration ---
+
+sdk-test:
+	$(MAKE) -C sdk test
+
+sdk-build:
+	$(MAKE) -C sdk build
+
+sdk-publish:
+	$(MAKE) -C sdk publish
+
+sdk-public: sdk-publish
+
+sdk-clean:
+	$(MAKE) -C sdk clean
 
 # --- Clean ---
 
