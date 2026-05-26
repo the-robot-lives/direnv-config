@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 import time
 from pathlib import Path
@@ -13,6 +14,17 @@ def read_version(store: Path) -> int:
         return int(contents)
     except (FileNotFoundError, ValueError, OSError):
         return 0
+
+
+def bump_version(store: Path) -> int:
+    """Atomically increment the version counter. Returns the new version."""
+    current = read_version(store)
+    new_version = current + 1
+    tmp_file = store / ".version.tmp"
+    version_file = store / ".version"
+    tmp_file.write_text(str(new_version))
+    os.rename(tmp_file, version_file)
+    return new_version
 
 
 class DcWatcher:

@@ -99,6 +99,15 @@ install-cli:
 		fi; \
 		echo "    $(INSTALL_DIR)/dc-init"; \
 	fi
+	@if [ -f bin/tabbing-on-step ]; then \
+		src=$$(realpath bin/tabbing-on-step); dst=$$(realpath "$(INSTALL_DIR)/tabbing-on-step" 2>/dev/null); \
+		if [ "$$src" = "$$dst" ]; then \
+			echo "    tabbing-on-step: same file — skipping"; \
+		else \
+			install -m 755 bin/tabbing-on-step "$(INSTALL_DIR)/tabbing-on-step"; \
+		fi; \
+		echo "    $(INSTALL_DIR)/tabbing-on-step"; \
+	fi
 
 # --- Uninstall ---
 

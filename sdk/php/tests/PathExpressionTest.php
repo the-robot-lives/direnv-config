@@ -149,4 +149,89 @@ final class PathExpressionTest extends TestCase
         $this->assertSame(2, PathExpression::resolve($data, 'matrix[0][1]'));
         $this->assertSame(6, PathExpression::resolve($data, 'matrix[1][-1]'));
     }
+
+    // ── set() tests ──────────────────────────────────────────────────
+
+    public function testSetSimpleTopLevelKey(): void
+    {
+        $data = ['existing' => 'value'];
+        PathExpression::set($data, 'name', 'noizu');
+        $this->assertSame('noizu', $data['name']);
+        $this->assertSame('value', $data['existing']);
+    }
+
+    public function testSetNestedKeyCreatesIntermediates(): void
+    {
+        $data = [];
+        PathExpression::set($data, 'a.b.c', 42);
+        $this->assertSame(42, $data['a']['b']['c']);
+    }
+
+    public function testSetArrayIndex(): void
+    {
+        $data = ['items' => ['a', 'b', 'c']];
+        PathExpression::set($data, 'items[1]', 'B');
+        $this->assertSame(['a', 'B', 'c'], $data['items']);
+    }
+
+    public function testSetExtendsArrayWithNullsWhenBeyondLength(): void
+    {
+        $data = ['items' => ['a']];
+        PathExpression::set($data, 'items[3]', 'D');
+        $this->assertCount(4, $data['items']);
+        $this->assertNull($data['items'][1]);
+        $this->assertNull($data['items'][2]);
+        $this->assertSame('D', $data['items'][3]);
+    }
+
+    public function testSetThrowsOnWildcard(): void
+    {
+        $data = ['items' => [1, 2]];
+        $this->expectException(\Noizu\DirenvConfig\Exception\DcException::class);
+        $this->expectExceptionMessage('wildcard');
+        PathExpression::set($data, 'items[*]', 99);
+    }
+
+    public function testSetThrowsOnLength(): void
+    {
+        $data = ['items' => [1, 2]];
+        $this->expectException(\Noizu\DirenvConfig\Exception\DcException::class);
+        $this->expectExceptionMessage('length');
+        PathExpression::set($data, 'items.length', 10);
+    }
+
+    // ── delete() tests ───────────────────────────────────────────────
+
+    public function testDeleteTopLevelKey(): void
+    {
+        $data = ['a' => 1, 'b' => 2];
+        $result = PathExpression::delete($data, 'a');
+        $this->assertTrue($result);
+        $this->assertArrayNotHasKey('a', $data);
+        $this->assertSame(2, $data['b']);
+    }
+
+    public function testDeleteNestedKey(): void
+    {
+        $data = ['top' => ['inner' => 'value', 'keep' => 'yes']];
+        $result = PathExpression::delete($data, 'top.inner');
+        $this->assertTrue($result);
+        $this->assertArrayNotHasKey('inner', $data['top']);
+        $this->assertSame('yes', $data['top']['keep']);
+    }
+
+    public function testDeleteArrayElementSplices(): void
+    {
+        $data = ['items' => ['a', 'b', 'c']];
+        $result = PathExpression::delete($data, 'items[1]');
+        $this->assertTrue($result);
+        $this->assertSame(['a', 'c'], $data['items']);
+    }
+
+    public function testDeleteReturnsFalseForMissingKey(): void
+    {
+        $data = ['a' => 1];
+        $result = PathExpression::delete($data, 'nonexistent');
+        $this->assertFalse($result);
+    }
 }

@@ -1,5 +1,5 @@
 defmodule DirenvConfig.NativeTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   @fixtures_dir Path.expand("../../../contract-tests/fixtures", __DIR__)
 
@@ -68,6 +68,112 @@ defmodule DirenvConfig.NativeTest do
     test "nested store" do
       assert DirenvConfig.Native.list_configs(Path.join(@fixtures_dir, "nested-store")) ==
                {:ok, ["app"]}
+    end
+  end
+
+  describe "set/6" do
+    setup do
+      tmp = Path.join(System.tmp_dir!(), "dc_native_test_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(tmp)
+
+      on_exit(fn ->
+        File.rm_rf!(tmp)
+      end)
+
+      {:ok, store: tmp}
+    end
+
+    test "set writes to layer and updates .active", %{store: store} do
+      assert :ok = DirenvConfig.Native.set(store, "myconfig", "db.host", "pg.local")
+
+      # Verify the local layer was written
+      layer_file = Path.join([store, "myconfig", "local.yaml"])
+      assert File.exists?(layer_file)
+      {:ok, layer_data} = YamlElixir.read_from_file(layer_file)
+      assert layer_data["db"]["host"] == "pg.local"
+
+      # Verify .active was created
+      active_file = Path.join([store, "myconfig", ".active"])
+      assert File.exists?(active_file)
+
+      # Verify version was bumped
+      assert DirenvConfig.Version.read(store) == 1
+    end
+
+    test "set with no_bump skips version bump", %{store: store} do
+      assert :ok = DirenvConfig.Native.set(store, "myconfig", "key", "val", "local", true)
+      assert DirenvConfig.Version.read(store) == 0
+    end
+
+    test "set to a specific layer", %{store: store} do
+      assert :ok = DirenvConfig.Native.set(store, "myconfig", "env", "production", "base")
+
+      layer_file = Path.join([store, "myconfig", "base.yaml"])
+      {:ok, data} = YamlElixir.read_from_file(layer_file)
+      assert data["env"] == "production"
+    end
+  end
+
+  describe "unset/5" do
+    setup do
+      tmp = Path.join(System.tmp_dir!(), "dc_native_unset_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(tmp)
+
+      on_exit(fn ->
+        File.rm_rf!(tmp)
+      end)
+
+      {:ok, store: tmp}
+    end
+
+    test "unset removes key and updates .active", %{store: store} do
+      # First set some keys
+      :ok = DirenvConfig.Native.set(store, "cfg", "a", "1")
+      :ok = DirenvConfig.Native.set(store, "cfg", "b", "2")
+
+      version_before = DirenvConfig.Version.read(store)
+
+      # Unset one key
+      assert :ok = DirenvConfig.Native.unset(store, "cfg", ["a"])
+
+      # Verify key was removed from layer
+      layer_file = Path.join([store, "cfg", "local.yaml"])
+      {:ok, data} = YamlElixir.read_from_file(layer_file)
+      refute Map.has_key?(data, "a")
+      assert data["b"] == 2
+
+      # Verify version was bumped
+      assert DirenvConfig.Version.read(store) > version_before
+    end
+
+    test "unset with no_bump skips version bump", %{store: store} do
+      :ok = DirenvConfig.Native.set(store, "cfg", "x", "1")
+      version_before = DirenvConfig.Version.read(store)
+
+      assert :ok = DirenvConfig.Native.unset(store, "cfg", ["x"], "local", true)
+      assert DirenvConfig.Version.read(store) == version_before
+    end
+
+    test "unset on nonexistent layer file is ok", %{store: store} do
+      assert :ok = DirenvConfig.Native.unset(store, "cfg", ["x"])
+    end
+  end
+
+  describe "bump/1" do
+    setup do
+      tmp = Path.join(System.tmp_dir!(), "dc_native_bump_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(tmp)
+
+      on_exit(fn ->
+        File.rm_rf!(tmp)
+      end)
+
+      {:ok, store: tmp}
+    end
+
+    test "bump increments version", %{store: store} do
+      assert {:ok, 1} = DirenvConfig.Native.bump(store)
+      assert {:ok, 2} = DirenvConfig.Native.bump(store)
     end
   end
 end

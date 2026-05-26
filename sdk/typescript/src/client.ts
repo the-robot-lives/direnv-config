@@ -93,4 +93,19 @@ export class DcClient {
       },
     };
   }
+
+  async set(config: string, key: string, value: string, options?: { layer?: string; noBump?: boolean }): Promise<void> {
+    const backend = await this.backendPromise;
+    await backend.set(config, key, value, options?.layer, options?.noBump);
+  }
+
+  async unset(config: string, keys: string[], options?: { layer?: string; noBump?: boolean }): Promise<void> {
+    const backend = await this.backendPromise;
+    await backend.unset(config, keys, options?.layer, options?.noBump);
+  }
+
+  async bump(): Promise<number> {
+    const backend = await this.backendPromise;
+    return backend.bump();
+  }
 }

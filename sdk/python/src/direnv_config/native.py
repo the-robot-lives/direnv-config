@@ -5,7 +5,10 @@ from typing import Any
 
 import yaml
 
-from direnv_config.path import get_path
+from direnv_config.path import delete_path, get_path, set_path
+from direnv_config.resolve import resolve_active
+from direnv_config.store import ensure_config, layer_path
+from direnv_config.version import bump_version
 
 
 class NativeBackend:
@@ -34,3 +37,68 @@ class NativeBackend:
         if not isinstance(configs, list):
             return []
         return [str(c) for c in configs]
+
+    def set(
+        self,
+        config: str,
+        key: str,
+        value: str,
+        layer: str = "local",
+        no_bump: bool = False,
+    ) -> None:
+        ensure_config(self._store, config)
+        lp = layer_path(self._store, config, layer)
+
+        # Read existing layer or start fresh
+        if lp.exists():
+            doc = yaml.safe_load(lp.read_text())
+            if doc is None:
+                doc = {}
+        else:
+            doc = {}
+
+        # Parse the value string
+        parsed_value: Any
+        if value is None:
+            parsed_value = value
+        else:
+            try:
+                parsed_value = yaml.safe_load(value)
+            except yaml.YAMLError:
+                parsed_value = value
+
+        doc = set_path(doc, key, parsed_value)
+        lp.write_text(yaml.dump(doc, default_flow_style=False))
+
+        resolve_active(self._store, config)
+
+        if not no_bump:
+            bump_version(self._store)
+
+    def unset(
+        self,
+        config: str,
+        keys: list[str],
+        layer: str = "local",
+        no_bump: bool = False,
+    ) -> None:
+        lp = layer_path(self._store, config, layer)
+        if not lp.exists():
+            return
+
+        doc = yaml.safe_load(lp.read_text())
+        if doc is None:
+            return
+
+        for key in keys:
+            delete_path(doc, key)
+
+        lp.write_text(yaml.dump(doc, default_flow_style=False))
+
+        resolve_active(self._store, config)
+
+        if not no_bump:
+            bump_version(self._store)
+
+    def bump(self) -> int:
+        return bump_version(self._store)

@@ -25,6 +25,22 @@ final class Version
         return intval(trim($content));
     }
 
+    /**
+     * Atomically increment the version and return the new value.
+     */
+    public static function bump(string $storePath): int
+    {
+        $current = self::read($storePath);
+        $next = $current + 1;
+
+        $file = $storePath . '/.version';
+        $tmp = $storePath . '/.version.tmp';
+        file_put_contents($tmp, (string) $next);
+        rename($tmp, $file);
+
+        return $next;
+    }
+
     public function poll(): ?int
     {
         $current = self::read($this->storePath);

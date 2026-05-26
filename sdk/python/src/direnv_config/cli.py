@@ -30,3 +30,51 @@ class CliBackend:
 
     def list_configs(self) -> list[str]:
         return self._native.list_configs()
+
+    def set(
+        self,
+        config: str,
+        key: str,
+        value: str,
+        layer: str = "local",
+        no_bump: bool = False,
+    ) -> None:
+        cmd = [self._dc_binary, "set", config, key, value]
+        if layer != "local":
+            cmd.extend(["--layer", layer])
+        if no_bump:
+            cmd.append("--no-bump")
+        subprocess.run(cmd, check=True)
+
+    def unset(
+        self,
+        config: str,
+        keys: list[str],
+        layer: str = "local",
+        no_bump: bool = False,
+    ) -> None:
+        cmd = [self._dc_binary, "unset", config, *keys]
+        if layer != "local":
+            cmd.extend(["--layer", layer])
+        if no_bump:
+            cmd.append("--no-bump")
+        subprocess.run(cmd, check=True)
+
+    def bump(self) -> int:
+        result = subprocess.run(
+            [self._dc_binary, "bump"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        # Parse version from stderr output (e.g., "version: 42")
+        for line in result.stderr.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("version:"):
+                return int(stripped.split(":", 1)[1].strip())
+        # Fallback: try stdout
+        for line in result.stdout.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("version:"):
+                return int(stripped.split(":", 1)[1].strip())
+        return 0

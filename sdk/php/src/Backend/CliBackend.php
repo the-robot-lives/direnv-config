@@ -40,6 +40,39 @@ final readonly class CliBackend implements BackendInterface
         return $meta['configs'] ?? [];
     }
 
+    public function set(string $config, string $key, string $value, string $layer = 'local', bool $noBump = false): void
+    {
+        $args = ['set', $config, $key, $value];
+        if ($layer !== 'local') {
+            $args[] = '--layer';
+            $args[] = $layer;
+        }
+        if ($noBump) {
+            $args[] = '--no-bump';
+        }
+        $this->exec($args);
+    }
+
+    /** @param string[] $keys */
+    public function unset(string $config, array $keys, string $layer = 'local', bool $noBump = false): void
+    {
+        $args = ['unset', $config, ...$keys];
+        if ($layer !== 'local') {
+            $args[] = '--layer';
+            $args[] = $layer;
+        }
+        if ($noBump) {
+            $args[] = '--no-bump';
+        }
+        $this->exec($args);
+    }
+
+    public function bump(): int
+    {
+        $output = $this->exec(['bump']);
+        return intval(trim($output));
+    }
+
     private function exec(array $args): string
     {
         $cmd = escapeshellcmd($this->dcBinary);

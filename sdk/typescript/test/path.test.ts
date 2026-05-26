@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parsePath, getPath } from '../src/path.js';
+import { parsePath, getPath, setPath, deletePath } from '../src/path.js';
 
 describe('parsePath', () => {
   it('parses a simple key', () => {
@@ -130,5 +130,86 @@ describe('getPath', () => {
     };
     expect(getPath(data, 'matrix[0][1]')).toBe(2);
     expect(getPath(data, 'matrix[1][-1]')).toBe(6);
+  });
+});
+
+describe('setPath', () => {
+  it('sets a simple top-level key', () => {
+    const obj = { a: 1 };
+    const result = setPath(obj, 'b', 2);
+    expect(result).toEqual({ a: 1, b: 2 });
+  });
+
+  it('sets a nested key and creates intermediates', () => {
+    const obj = {};
+    const result = setPath(obj, 'a.b.c', 'deep');
+    expect(result).toEqual({ a: { b: { c: 'deep' } } });
+  });
+
+  it('sets an array index on an existing array', () => {
+    const obj = { items: ['a', 'b', 'c'] };
+    setPath(obj, 'items[1]', 'B');
+    expect(obj.items).toEqual(['a', 'B', 'c']);
+  });
+
+  it('extends array with nulls when index is beyond length', () => {
+    const obj = { items: ['a'] };
+    setPath(obj, 'items[3]', 'D');
+    expect(obj.items).toEqual(['a', null, null, 'D']);
+  });
+
+  it('creates array when next segment is index', () => {
+    const obj: Record<string, unknown> = {};
+    setPath(obj, 'list[0]', 'first');
+    expect(obj['list']).toEqual(['first']);
+  });
+
+  it('on null root creates object', () => {
+    const result = setPath(null, 'key', 'value');
+    expect(result).toEqual({ key: 'value' });
+  });
+
+  it('on undefined root creates object', () => {
+    const result = setPath(undefined, 'key', 'value');
+    expect(result).toEqual({ key: 'value' });
+  });
+
+  it('throws on wildcard segment', () => {
+    expect(() => setPath({ items: [1] }, 'items[*]', 99)).toThrow(/wildcard/);
+  });
+
+  it('throws on length segment', () => {
+    expect(() => setPath({ items: [1] }, 'items.length', 5)).toThrow(/length/);
+  });
+});
+
+describe('deletePath', () => {
+  it('deletes a top-level key from object', () => {
+    const obj = { a: 1, b: 2 };
+    expect(deletePath(obj, 'a')).toBe(true);
+    expect(obj).toEqual({ b: 2 });
+  });
+
+  it('deletes a nested key', () => {
+    const obj = { a: { b: { c: 3 }, d: 4 } };
+    expect(deletePath(obj, 'a.b.c')).toBe(true);
+    expect(obj).toEqual({ a: { b: {}, d: 4 } });
+  });
+
+  it('deletes an array element by splicing', () => {
+    const obj = { items: ['a', 'b', 'c'] };
+    expect(deletePath(obj, 'items[1]')).toBe(true);
+    expect(obj.items).toEqual(['a', 'c']);
+  });
+
+  it('returns false for missing key', () => {
+    const obj = { a: 1 };
+    expect(deletePath(obj, 'b')).toBe(false);
+  });
+
+  it('returns false on non-object root', () => {
+    expect(deletePath('string', 'key')).toBe(false);
+    expect(deletePath(42, 'key')).toBe(false);
+    expect(deletePath(null, 'key')).toBe(false);
   });
 });

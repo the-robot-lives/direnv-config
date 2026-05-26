@@ -88,6 +88,22 @@ final class DcClient
         return $this->backend->listConfigs();
     }
 
+    public function set(string $config, string $key, string $value, string $layer = 'local', bool $noBump = false): void
+    {
+        $this->backend->set($config, $key, $value, $layer, $noBump);
+    }
+
+    /** @param string[] $keys */
+    public function unset(string $config, array $keys, string $layer = 'local', bool $noBump = false): void
+    {
+        $this->backend->unset($config, $keys, $layer, $noBump);
+    }
+
+    public function bump(): int
+    {
+        return $this->backend->bump();
+    }
+
     public function version(): int
     {
         return Version::read($this->storePath);

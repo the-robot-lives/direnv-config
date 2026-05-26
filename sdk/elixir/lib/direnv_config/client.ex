@@ -107,4 +107,40 @@ defmodule DirenvConfig.Client do
   def has_changed?(%__MODULE__{} = client, since) do
     version(client) != since
   end
+
+  @spec set(t(), String.t(), String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def set(%__MODULE__{} = client, config, key, value, opts \\ []) do
+    layer = Keyword.get(opts, :layer, "local")
+    no_bump = Keyword.get(opts, :no_bump, false)
+
+    case client.mode do
+      :native ->
+        DirenvConfig.Native.set(client.store_path, config, key, value, layer, no_bump)
+
+      :cli ->
+        DirenvConfig.CLI.set(client.dc_binary, client.store_path, config, key, value, layer, no_bump)
+    end
+  end
+
+  @spec unset(t(), String.t(), [String.t()], keyword()) :: :ok | {:error, term()}
+  def unset(%__MODULE__{} = client, config, keys, opts \\ []) do
+    layer = Keyword.get(opts, :layer, "local")
+    no_bump = Keyword.get(opts, :no_bump, false)
+
+    case client.mode do
+      :native ->
+        DirenvConfig.Native.unset(client.store_path, config, keys, layer, no_bump)
+
+      :cli ->
+        DirenvConfig.CLI.unset(client.dc_binary, client.store_path, config, keys, layer, no_bump)
+    end
+  end
+
+  @spec bump(t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def bump(%__MODULE__{} = client) do
+    case client.mode do
+      :native -> DirenvConfig.Native.bump(client.store_path)
+      :cli -> DirenvConfig.CLI.bump(client.dc_binary, client.store_path)
+    end
+  end
 end

@@ -119,4 +119,69 @@ defmodule DirenvConfig.PathTest do
       assert Path.get(data, "a.b.c") == {:ok, "deep"}
     end
   end
+
+  describe "set/3" do
+    test "set a simple top-level key" do
+      assert Path.set(%{}, "name", "alice") == {:ok, %{"name" => "alice"}}
+    end
+
+    test "set a nested key creates intermediate maps" do
+      assert Path.set(%{}, "a.b.c", 42) == {:ok, %{"a" => %{"b" => %{"c" => 42}}}}
+    end
+
+    test "set preserves existing keys" do
+      data = %{"a" => %{"x" => 1}}
+      assert Path.set(data, "a.y", 2) == {:ok, %{"a" => %{"x" => 1, "y" => 2}}}
+    end
+
+    test "set a list index" do
+      data = %{"items" => ["a", "b", "c"]}
+      assert Path.set(data, "items[1]", "B") == {:ok, %{"items" => ["a", "B", "c"]}}
+    end
+
+    test "set extends list with nils when index beyond length" do
+      data = %{"items" => ["a"]}
+      assert Path.set(data, "items[3]", "d") == {:ok, %{"items" => ["a", nil, nil, "d"]}}
+    end
+
+    test "set returns error on wildcard" do
+      assert Path.set(%{"items" => [1, 2]}, "items[*]", 0) == {:error, :not_supported}
+    end
+
+    test "set returns error on length" do
+      assert Path.set(%{"items" => [1, 2]}, "items.length", 5) == {:error, :not_supported}
+    end
+  end
+
+  describe "delete/2" do
+    test "delete a top-level key" do
+      data = %{"a" => 1, "b" => 2}
+      assert Path.delete(data, "a") == {:ok, %{"b" => 2}}
+    end
+
+    test "delete a nested key" do
+      data = %{"a" => %{"b" => 1, "c" => 2}}
+      assert Path.delete(data, "a.b") == {:ok, %{"a" => %{"c" => 2}}}
+    end
+
+    test "delete a list element" do
+      data = %{"items" => ["a", "b", "c"]}
+      assert Path.delete(data, "items[1]") == {:ok, %{"items" => ["a", "c"]}}
+    end
+
+    test "delete returns error for missing key" do
+      data = %{"a" => 1}
+      assert Path.delete(data, "b") == {:ok, %{"a" => 1}}
+    end
+
+    test "delete returns error for missing nested key" do
+      data = %{"a" => %{"b" => 1}}
+      assert Path.delete(data, "a.z") == {:ok, %{"a" => %{"b" => 1}}}
+    end
+
+    test "delete returns error for deeply missing path" do
+      data = %{"a" => 1}
+      assert Path.delete(data, "x.y.z") == :error
+    end
+  end
 end

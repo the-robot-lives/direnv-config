@@ -138,3 +138,88 @@ def test_get_mixed_map_array():
 def test_get_none_value_in_dict():
     data = {"key": None}
     assert get_path(data, "key") is None
+
+
+# ---------------------------------------------------------------------------
+# set_path tests
+# ---------------------------------------------------------------------------
+from direnv_config.path import set_path, delete_path
+
+
+def test_set_simple_top_level_key():
+    root = {"a": 1}
+    result = set_path(root, "b", 2)
+    assert result == {"a": 1, "b": 2}
+
+
+def test_set_nested_key_creates_intermediates():
+    root = {}
+    result = set_path(root, "a.b.c", 42)
+    assert result == {"a": {"b": {"c": 42}}}
+
+
+def test_set_array_index():
+    root = {"items": ["x", "y", "z"]}
+    result = set_path(root, "items[1]", "replaced")
+    assert result["items"] == ["x", "replaced", "z"]
+
+
+def test_set_extends_list_with_none_when_index_beyond_length():
+    root = {"items": ["a"]}
+    result = set_path(root, "items[3]", "d")
+    assert result["items"] == ["a", None, None, "d"]
+
+
+def test_set_creates_list_when_next_segment_is_index():
+    root = {}
+    result = set_path(root, "data[0]", "first")
+    assert result == {"data": ["first"]}
+
+
+def test_set_on_none_root_creates_dict():
+    result = set_path(None, "x.y", 10)
+    assert result == {"x": {"y": 10}}
+
+
+def test_set_raises_on_wildcard():
+    import pytest
+    with pytest.raises(ValueError, match="Wildcard"):
+        set_path({"items": [1, 2]}, "items[*]", 99)
+
+
+def test_set_raises_on_length():
+    import pytest
+    with pytest.raises(ValueError, match="Length"):
+        set_path({"items": [1, 2]}, "items.length", 99)
+
+
+# ---------------------------------------------------------------------------
+# delete_path tests
+# ---------------------------------------------------------------------------
+
+
+def test_delete_top_level_key():
+    data = {"a": 1, "b": 2}
+    assert delete_path(data, "a") is True
+    assert data == {"b": 2}
+
+
+def test_delete_nested_key():
+    data = {"a": {"b": {"c": 3, "d": 4}}}
+    assert delete_path(data, "a.b.c") is True
+    assert data == {"a": {"b": {"d": 4}}}
+
+
+def test_delete_list_element():
+    data = {"items": ["x", "y", "z"]}
+    assert delete_path(data, "items[1]") is True
+    assert data["items"] == ["x", "z"]
+
+
+def test_delete_returns_false_for_missing_key():
+    data = {"a": 1}
+    assert delete_path(data, "b") is False
+
+
+def test_delete_returns_false_for_non_dict_root():
+    assert delete_path("not a dict", "a") is False

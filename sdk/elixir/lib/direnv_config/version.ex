@@ -14,4 +14,15 @@ defmodule DirenvConfig.Version do
         0
     end
   end
+
+  @spec bump(String.t()) :: {:ok, non_neg_integer()}
+  def bump(store_path) do
+    current = read(store_path)
+    new_version = current + 1
+    version_path = Path.join(store_path, ".version")
+    tmp_path = Path.join(store_path, ".version.tmp")
+    File.write!(tmp_path, Integer.to_string(new_version))
+    File.rename!(tmp_path, version_path)
+    {:ok, new_version}
+  end
 end

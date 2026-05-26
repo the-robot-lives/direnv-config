@@ -68,6 +68,30 @@ class DcClient:
     def has_changed(self, since: int) -> bool:
         return read_version(self._store) != since
 
+    def set(
+        self,
+        config: str,
+        key: str,
+        value: str,
+        *,
+        layer: str | None = None,
+        no_bump: bool = False,
+    ) -> None:
+        self._backend.set(config, key, value, layer=layer or "local", no_bump=no_bump)
+
+    def unset(
+        self,
+        config: str,
+        keys: list[str],
+        *,
+        layer: str | None = None,
+        no_bump: bool = False,
+    ) -> None:
+        self._backend.unset(config, keys, layer=layer or "local", no_bump=no_bump)
+
+    def bump(self) -> int:
+        return self._backend.bump()
+
     def watch(
         self,
         callback: Callable[[int], None],
