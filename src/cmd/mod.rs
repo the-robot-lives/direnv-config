@@ -9,3 +9,4 @@ pub mod init;
 pub mod status;
 pub mod list;
 pub mod purge;
+pub mod secrets;

@@ -32,5 +32,16 @@ dc_bump() {
 }
 
 dc_export() {
-  eval "$(dc env)"
+  if [ $# -eq 0 ]; then
+    eval "$(dc env)"
+    return
+  fi
+  # dc_export NAME=config path [--default VAL] [--fallback ENV] [--override ENV] [--auto TYPE [LEN]]
+  local assignment="$1"; shift
+  local var_name="${assignment%%=*}"
+  local config_name="${assignment#*=}"
+  local result
+  if result="$(dc get "$config_name" "$@")"; then
+    export "$var_name=$result"
+  fi
 }

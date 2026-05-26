@@ -85,17 +85,26 @@ pub fn ensure_config(store: &Path, name: &str) -> Result<PathBuf> {
 }
 
 /// Find the store for the current working directory.
+///
+/// Walks up the directory tree from CWD until it finds a directory
+/// that has a corresponding store, similar to how git searches for `.git`.
 pub fn find_current_store() -> Result<PathBuf> {
     let cwd = std::env::current_dir().context("failed to get current directory")?;
-    let sp = store_path(&cwd);
-    if sp.exists() {
-        Ok(sp)
-    } else {
-        anyhow::bail!(
-            "no store found for {}. Run `dc init` first.",
-            cwd.display()
-        )
+    let mut dir = cwd.as_path();
+    loop {
+        let sp = store_path(dir);
+        if sp.exists() {
+            return Ok(sp);
+        }
+        match dir.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => dir = parent,
+            _ => break,
+        }
     }
+    anyhow::bail!(
+        "no store found for {} (searched all parent directories). Run `dc init` first.",
+        cwd.display()
+    )
 }
 
 #[cfg(test)]
