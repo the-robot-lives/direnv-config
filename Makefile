@@ -7,13 +7,14 @@ SHELL_INIT   := eval "$$($(DC_HOME)/bin/dc-init zsh)"
 CARGO        := cargo
 RELEASE_BIN  := target/release/dc
 
-.PHONY: compile test install uninstall check doctor help clean
+.PHONY: compile build test install uninstall check doctor help clean
 .PHONY: install-direnv-lib install-shell-hook install-cli
 .PHONY: sdk-test sdk-build sdk-publish sdk-public sdk-clean
 
 help:
 	@echo "Targets:"
 	@echo "  compile    Build the dc binary (cargo build --release)"
+	@echo "  build      Alias for compile"
 	@echo "  test       Run Rust tests + integration tests"
 	@echo "  install    Build + install binary, direnv stdlib, shell hook"
 	@echo "  uninstall  Remove all installed components"
@@ -36,6 +37,8 @@ compile:
 	else \
 		echo "==> Cargo.toml not yet created — skipping compile"; \
 	fi
+
+build: compile
 
 # --- Test ---
 
