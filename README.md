@@ -708,6 +708,137 @@ Aliases are the correct mechanism for cross-references that span named configs (
 
 **Child override:** A child `.envrc` can add aliases in its own `_dc` config. Child aliases are deep-merged with parent aliases — a child can shadow a parent's alias by redefining it, or add new ones.
 
+## Secret Management
+
+`dc` distinguishes **secrets** from settings, encrypts them at rest, redacts them
+by default, and audits every reveal. Secrets are stored as opaque self-describing
+scalars (`dcenc:v1:t<tier>:<base64url>`) — every language SDK passes them through
+untouched; only `dc` (holding the key) can decrypt.
+
+### Setup
+
+Put a 32-byte AEAD key in `~/.config/direnv-config/settings.yaml`:
+
+```yaml
+# generate with: openssl rand -base64 32
+key: "Q2hhbmdlTWVUb0EzMkJ5dGVSYW5kb21LZXkhIQ=="
+# audit_log: /custom/path/audit.log   # optional; defaults to state dir
+```
+
+> ⚠️ Rotating this key orphans all existing `dcenc:` tokens — `dc` fails loudly
+> rather than silently re-encrypting.
+
+### Tagging secrets in `.envrc`
+
+Prefix a value with `🔒` to mark it a secret. An optional run of `❗` sets the
+sensitivity tier (low/med/high). Parsing: trim → strip `🔒` → count `❗` → trim
+the body (interior whitespace preserved).
+
+```bash
+dc_yaml --no-bump cf <<'YAML'
+account_id: a75e745949fc104          # plain setting → base.yaml
+access:
+  client_id: 7ebfc690af.access       # plain setting → base.yaml
+  client_secret: "🔒❗❗ <the-secret>" # secret → encrypted → secrets.yaml
+api_token: |
+  🔒 <the-secret>                     # block scalars work too
+YAML
+```
+
+A single heredoc fans out: plain keys go to the requested layer, `🔒` values are
+encrypted and routed to `secrets.yaml` **regardless of `--layer`**. A value that
+is already a `dcenc:` token (e.g. encrypted-at-rest inline) is stored verbatim,
+never double-encrypted.
+
+### Reading secrets
+
+```bash
+dc get cf access.client_secret                 # 🔒❗❗ **redacted** (default — key untouched)
+dc get cf access.client_secret --reveal        # decrypt to stdout (audited)
+dc get cf access.client_secret --clippy        # decrypt to clipboard, no stdout (audited, macOS)
+```
+
+Every reveal appends a JSONL record (user, euid, subject, path, tier, method, ts)
+to the audit log (mode 0600).
+
+### Browsing
+
+```bash
+dc bat                       # not a command — use a subject or --all
+dc bat --all                 # every config, secrets masked
+dc bat cf                    # one subject
+dc bat cf access             # a scope within a subject
+dc bat cf --reveal           # unmask (audited)
+dc bat cf --filter-key 'secret' --exclude-value 'redacted'
+```
+
+Filters are regexes; `--filter-key`/`--exclude-key` match the full concatenated
+path (e.g. `cf.access.client_secret`). Output pipes through `bat` when present.
+
+### Editing `.envrc` source in place
+
+`dc config` edits the literal hand-authored `.envrc*` heredocs (not the store),
+preserving comments and formatting, and encrypts the new value inline:
+
+```bash
+dc config get cf access.client_secret                       # show file:line + redacted preview
+dc config set cf access.client_secret --value "$NEW"        # preview → confirm → encrypt → splice
+dc config set cf access.api_key --from ./key.txt            # inserts under existing parent (errata)
+echo "$NEW" | dc config set cf db.password --stdin          # value via stdin (implies --yes)
+dc config set cf x --value "$TOKEN" --encrypted             # value is already a dcenc token
+dc config setall cf --below account_id <<'YAML'             # insert a YAML section by anchor
+new_group:
+  key: value
+YAML
+```
+
+### Extra lockdown (shadow store)
+
+`dc config secure` moves a secret into `<project>/.secrets/restricted.config.yaml`
+and leaves a `⛔` sentinel in both the store and `.envrc`. Plain `--reveal` will
+**not** expose a `⛔` value — only the stricter `--reveal-restricted` does, and it
+is always audited.
+
+```bash
+dc config secure cf access.client_secret --note "rotate quarterly"
+dc get cf access.client_secret                    # ⛔ **restricted**
+dc get cf access.client_secret --reveal           # still ⛔ **restricted**
+dc get cf access.client_secret --reveal-restricted  # decrypts from shadow (audited)
+```
+
+### Compare / push / Infisical roundtrip
+
+Compare a local secret against remote copies **without printing any value**:
+
+```bash
+dc compare cf access.client_secret \
+  --to infisical://cf/CF_API_TOKEN \
+  --to k8://apps-ns/cf-secrets/CF_API_TOKEN
+# DC == infisical  /cf/CF_API_TOKEN
+# DC != k8  apps-ns/cf-secrets/CF_API_TOKEN
+```
+
+Force-push (dry-run by default), driven by your decrypted local values:
+
+```bash
+dc push cf access --to infisical://cf --dry-run     # plan only, no values shown
+dc push cf access --to kubernetes://apps-ns/cf-secrets --yes
+```
+
+Roundtrip against the `.infisical-secrets.yaml` mapping:
+
+```bash
+dc infisical compare /data/postgres/POSTGRES_PASSWORD --to k8://data/shared-postgres/POSTGRES_PASSWORD
+dc infisical get POSTGRES_PASSWORD                  # live Infisical vs dc source, redacted
+dc infisical get POSTGRES_PASSWORD --reveal         # both plaintext (audited)
+dc infisical set POSTGRES_PASSWORD --value "$NEW"   # locates dc source, edits .envrc in place
+```
+
+Infisical/Kubernetes access is native (no shell-out). Connection settings resolve
+from env vars then `dc get secrets infisical.*` / `dc get cf access.*`; `compare`
+and `push` exit non-zero on any mismatch and never leak plaintext to stdout or the
+audit log (the push payload is the sole intended egress).
+
 ## Install
 
 Three things need to happen, each serving a different purpose:

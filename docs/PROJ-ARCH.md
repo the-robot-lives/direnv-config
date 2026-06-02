@@ -85,14 +85,46 @@ The `_dc` named config contains flatten rules that map config paths to environme
 
 Child processes cannot modify a parent's environment directly. `dc` works around this by writing to the shared YAML store and bumping `.version`. The `precmd` hook (installed by `dc-init`) compares the version counter on each prompt and re-evaluates `dc env` when it changes. This enables cross-process communication — a deploy script can `dc set tab status "deploying"` and the parent shell's tab title updates on the next prompt.
 
+## Secret Management
+
+Secrets are first-class and distinct from settings (see the README's
+"Secret Management" section for usage).
+
+- **Marking**: a YAML scalar is a secret when its trimmed body begins with `🔒`;
+  an optional `❗` run encodes a sensitivity tier (0–3). `⛔` is the sentinel for
+  shadowed ("locked-down") secrets.
+- **Encryption at rest**: XChaCha20-Poly1305 AEAD (RustCrypto `chacha20poly1305`)
+  with a symmetric key in `~/.config/direnv-config/settings.yaml`. Each secret is
+  serialized as a **flat self-describing scalar** `dcenc:v1:t<tier>:<base64url(nonce‖ct‖tag)>`.
+  The flat-scalar shape is load-bearing: `merge`/`path`/`flatten` and **every SDK**
+  treat it as an opaque string and pass it through without the key. A contract-test
+  fixture (`sdk/contract-tests`, `secret-store`) enforces this passthrough.
+- **Routing**: `dc yaml` splits a heredoc — plain keys to the requested layer,
+  `🔒` keys encrypted into `secrets.yaml` regardless of `--layer`. Already-encrypted
+  bodies are stored verbatim (no double-encryption).
+- **Redaction by default / audited reveal**: `dc get` never decrypts unless asked
+  (`--reveal`/`--clippy`); `⛔` requires the stricter `--reveal-restricted`. Every
+  reveal appends a JSONL record to the audit log (`audit.rs`).
+- **Shadow store**: `dc config secure` relocates a secret to
+  `<project>/.secrets/restricted.config.yaml` and leaves a `⛔` sentinel resolved
+  via `shadow.rs`.
+- **Source editing**: `dc config` edits the literal `.envrc*` heredocs via a
+  line-oriented locator (`envrc/locator.rs`) that preserves comments/formatting.
+- **Remote sync**: native Infisical (reqwest blocking + rustls) and Kubernetes
+  (`kubectl`) clients power `dc compare`/`dc push`/`dc infisical`; comparison uses
+  SHA-256 digests so no plaintext or length leaks.
+
 ## Technology Stack
 
 | Layer | Technology |
 |-------|-----------|
 | CLI | Rust (clap, serde_yaml, anyhow, chrono, sha2) |
+| Crypto | XChaCha20-Poly1305 (chacha20poly1305), base64 |
+| Remote sync | reqwest (blocking, rustls) for Infisical; `kubectl` for Kubernetes |
 | Shell integration | POSIX sh / zsh / bash |
 | Config format | YAML (serde_yaml) |
 | State location | `~/.local/state/direnv-config/` (XDG_STATE_HOME) |
+| Settings/key | `~/.config/direnv-config/settings.yaml` |
 | Store addressing | Path-to-name: strip leading `/`, replace `/` with `-`, SHA-256 truncation at 200 chars |
 | SDKs | TypeScript, Python, Elixir, PHP — native (file read) + CLI backends |
 

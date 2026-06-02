@@ -1,5 +1,10 @@
 pub mod yaml;
 pub mod get;
+pub mod bat;
+pub mod config;
+pub mod compare;
+pub mod infisical;
+pub mod push;
 pub mod set;
 pub mod unset;
 pub mod prune;
