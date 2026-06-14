@@ -185,17 +185,117 @@ fn output(text: &str) {
     }
 }
 
+/// Collect flat leaf paths from the resolved config that pass filters.
+fn collect_flat(
+    prefix: &str,
+    val: &Value,
+    f: &Filters,
+    reveal: bool,
+    key: Option<&[u8; 32]>,
+    out: &mut Vec<String>,
+) {
+    match val {
+        Value::Mapping(m) => {
+            for (k, v) in m {
+                let ks = k.as_str().unwrap_or_default();
+                if ks.starts_with('_') {
+                    continue;
+                }
+                let child = if prefix.is_empty() {
+                    ks.to_string()
+                } else {
+                    format!("{prefix}.{ks}")
+                };
+                collect_flat(&child, v, f, reveal, key, out);
+            }
+        }
+        Value::Sequence(seq) => {
+            for (i, item) in seq.iter().enumerate() {
+                collect_flat(&format!("{prefix}[{i}]"), item, f, reveal, key, out);
+            }
+        }
+        scalar => {
+            let match_val = match scalar {
+                Value::String(s) => {
+                    let (_, mv, _) = mask_string(s, reveal, key);
+                    mv
+                }
+                Value::Number(n) => n.to_string(),
+                Value::Bool(b) => b.to_string(),
+                _ => String::new(),
+            };
+            if f.passes(prefix, &match_val) {
+                out.push(prefix.to_string());
+            }
+        }
+    }
+}
+
+/// Run flat mode: show line numbers and dotted key paths, no values.
+fn run_flat(
+    subject: Option<&str>,
+    all: bool,
+    filter_key: Option<&str>,
+    filter_value: Option<&str>,
+    exclude_key: Option<&str>,
+    exclude_value: Option<&str>,
+) -> Result<()> {
+    let filters = Filters::compile(filter_key, filter_value, exclude_key, exclude_value)?;
+    let store = crate::store::find_current_store()?;
+    let chain = crate::store::resolve::resolve_chain(&store);
+
+    let names: Vec<String> = if all {
+        all_config_names(&chain)
+    } else {
+        let n = subject.ok_or_else(|| anyhow!("usage: dc bat --flat [--all | <subject>]"))?;
+        vec![n.to_string()]
+    };
+
+    let mut matched_paths = Vec::new();
+    for name in &names {
+        let cfg = crate::store::resolve::resolve_config(&chain, name)?;
+        collect_flat(name, &cfg, &filters, false, None, &mut matched_paths);
+    }
+
+    let meta = crate::store::meta::read_meta(&store)?;
+    let source_dir = &meta.source;
+    let mut loc_map: std::collections::BTreeMap<String, (String, usize)> = std::collections::BTreeMap::new();
+    for f in crate::envrc::locator::envrc_files(source_dir) {
+        if let Ok(locs) = crate::envrc::locator::index_file(&f) {
+            let fname = f.file_name().unwrap_or_default().to_string_lossy().to_string();
+            for l in locs {
+                let full = format!("{}.{}", l.subject, l.path);
+                loc_map.insert(full, (fname.clone(), l.key_line + 1));
+            }
+        }
+    }
+
+    for path in &matched_paths {
+        if let Some((file, line)) = loc_map.get(path) {
+            println!("{file}:{line}: {path}");
+        } else {
+            println!("?:?: {path}");
+        }
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run(
     subject: Option<&str>,
     scope: Option<&str>,
     all: bool,
     reveal: bool,
+    flat: bool,
     filter_key: Option<&str>,
     filter_value: Option<&str>,
     exclude_key: Option<&str>,
     exclude_value: Option<&str>,
 ) -> Result<()> {
+    if flat {
+        return run_flat(subject, all, filter_key, filter_value, exclude_key, exclude_value);
+    }
+
     let filters = Filters::compile(filter_key, filter_value, exclude_key, exclude_value)?;
     let store = crate::store::find_current_store()?;
     let chain = crate::store::resolve::resolve_chain(&store);

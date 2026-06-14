@@ -137,6 +137,9 @@ enum Commands {
         /// Decrypt and show secret values (audited)
         #[arg(long)]
         reveal: bool,
+        /// Flat output: one line per key with line number, no values
+        #[arg(long)]
+        flat: bool,
         /// Keep only entries whose full key path matches this regex
         #[arg(long, value_name = "RE")]
         filter_key: Option<String>,
@@ -291,12 +294,13 @@ fn main() -> anyhow::Result<()> {
         Commands::Secrets { json } => {
             cmd::secrets::run(json)
         }
-        Commands::Bat { subject, scope, all, reveal, filter_key, filter_value, exclude_key, exclude_value } => {
+        Commands::Bat { subject, scope, all, reveal, flat, filter_key, filter_value, exclude_key, exclude_value } => {
             cmd::bat::run(
                 subject.as_deref(),
                 scope.as_deref(),
                 all,
                 reveal,
+                flat,
                 filter_key.as_deref(),
                 filter_value.as_deref(),
                 exclude_key.as_deref(),
