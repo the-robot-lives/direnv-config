@@ -95,7 +95,7 @@ Secrets are first-class and distinct from settings (see the README's
   shadowed ("locked-down") secrets.
 - **Encryption at rest**: XChaCha20-Poly1305 AEAD (RustCrypto `chacha20poly1305`)
   with a symmetric key in `~/.config/direnv-config/settings.yaml`. Each secret is
-  serialized as a **flat self-describing scalar** `dcenc:v1:t<tier>:<base64url(nonce‖ct‖tag)>`.
+  serialized as a **flat self-describing scalar** `🔒:v1:t<tier>:<base64url(nonce‖ct‖tag)>`.
   The flat-scalar shape is load-bearing: `merge`/`path`/`flatten` and **every SDK**
   treat it as an opaque string and pass it through without the key. A contract-test
   fixture (`sdk/contract-tests`, `secret-store`) enforces this passthrough.

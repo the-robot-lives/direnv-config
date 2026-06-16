@@ -203,19 +203,19 @@ tests:
     expected_configs:
       - app
 
-  # --- Encrypted-secret passthrough (SDKs must NOT decode dcenc:/⛔) ---
+  # --- Encrypted-secret passthrough (SDKs must NOT decode 🔒:/⛔) ---
   - name: encrypted token passes through verbatim
     store: secret-store
     config: vault
     path: api_token
-    expected: dcenc:v1:t2:bm90LXJlYWwtY2lwaGVydGV4dC1maXh0dXJl
+    expected: "🔒:v1:t2:bm90LXJlYWwtY2lwaGVydGV4dC1maXh0dXJl"
     type: string
 
   - name: nested encrypted token passes through verbatim
     store: secret-store
     config: vault
     path: nested.password
-    expected: dcenc:v1:t3:YW5vdGhlci1mYWtlLXRva2Vu
+    expected: "🔒:v1:t3:YW5vdGhlci1mYWtlLXRva2Vu"
     type: string
 
   - name: restricted sentinel passes through verbatim

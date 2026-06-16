@@ -2,24 +2,52 @@ use anyhow::Result;
 use rand::Rng;
 use std::io::Write;
 
-/// Resolve a config path to its *raw stored* scalar (which may be a `dcenc:`
+const POINTER_PREFIX: &str = "🔗";
+const MAX_POINTER_DEPTH: usize = 8;
+
+/// Resolve a config path to its *raw stored* scalar (which may be a `🔒:`
 /// token or the `⛔` restricted sentinel — callers decide how to handle it).
 pub(crate) fn dc_lookup(name: &str, path: &str) -> Option<String> {
+    dc_lookup_raw(name, path, MAX_POINTER_DEPTH)
+}
+
+fn dc_lookup_raw(name: &str, path: &str, depth: usize) -> Option<String> {
     let store = crate::store::find_current_store().ok()?;
     let chain = crate::store::resolve::resolve_chain(&store);
     let config = crate::store::resolve::resolve_config(&chain, name).ok()?;
     let val = crate::yaml::path::get_path(&config, path)?;
-    match val {
+    let scalar = match val {
         serde_yaml::Value::String(s) => Some(s.clone()),
         serde_yaml::Value::Number(n) => Some(n.to_string()),
         serde_yaml::Value::Bool(b) => Some(b.to_string()),
         serde_yaml::Value::Null => None,
         _ => Some(serde_yaml::to_string(&val).ok()?.trim().to_string()),
+    }?;
+    resolve_pointer(&scalar, depth)
+}
+
+fn resolve_pointer(val: &str, depth: usize) -> Option<String> {
+    let trimmed = val.trim();
+    if !trimmed.starts_with(POINTER_PREFIX) {
+        return Some(val.to_string());
     }
+    if depth == 0 {
+        eprintln!("dc: pointer chain exceeded max depth ({})", MAX_POINTER_DEPTH);
+        return None;
+    }
+    let rest = trimmed.strip_prefix(POINTER_PREFIX)?.trim();
+    let mut parts = rest.splitn(2, ' ');
+    let target_name = parts.next()?.trim();
+    let target_path = parts.next()?.trim();
+    if target_name.is_empty() || target_path.is_empty() {
+        eprintln!("dc: malformed pointer (expected \"🔗 group path.to.key\"): {}", val);
+        return None;
+    }
+    dc_lookup_raw(target_name, target_path, depth - 1)
 }
 
 /// Resolve a config path to its decrypted plaintext (internal API for
-/// compare/push/infisical). Decrypts `dcenc:` tokens; passes plain values
+/// compare/push/infisical). Decrypts `🔒:` tokens; passes plain values
 /// through. Does NOT write an audit record — callers audit their own reveals.
 pub(crate) fn get_secret_plaintext(name: &str, path: &str) -> anyhow::Result<Option<String>> {
     match dc_lookup(name, path) {

@@ -21,13 +21,16 @@ pub struct Settings {
     pub audit_log: Option<PathBuf>,
 }
 
-/// Resolve the settings file path: `$DC_SETTINGS` → `~/.config/direnv-config/settings.yaml`.
+/// Resolve the settings file path: `$DC_SETTINGS` → `$XDG_CONFIG_HOME/direnv-config/settings.yaml` → `~/.config/direnv-config/settings.yaml`.
 pub fn settings_path() -> PathBuf {
     if let Ok(p) = std::env::var("DC_SETTINGS") {
         return PathBuf::from(p);
     }
-    dirs::config_dir()
-        .map(|c| c.join("direnv-config").join("settings.yaml"))
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        return PathBuf::from(xdg).join("direnv-config").join("settings.yaml");
+    }
+    dirs::home_dir()
+        .map(|h| h.join(".config").join("direnv-config").join("settings.yaml"))
         .unwrap_or_else(|| PathBuf::from(".config/direnv-config/settings.yaml"))
 }
 

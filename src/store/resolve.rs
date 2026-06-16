@@ -87,34 +87,82 @@ pub fn resolve_config(chain: &[PathBuf], name: &str) -> Result<Value> {
     Ok(deep_merge_multi(&layers))
 }
 
+const LAYERS_CONFIG_PATH: &str = "configuration.dc.layers";
+
+fn default_layer_weights(env_name: &str) -> Vec<(String, i64)> {
+    let mut defaults = vec![
+        ("base".to_string(), 1000),
+        ("local".to_string(), 500),
+        ("secrets".to_string(), 250),
+    ];
+    if !env_name.is_empty() {
+        defaults.push((env_name.to_string(), 750));
+    }
+    defaults
+}
+
+/// Read layer weight configuration from `base.yaml`'s
+/// `configuration.dc.layers` key. Returns a map of layer name → weight.
+/// Entries in this map overwrite defaults (shallow replace, not deep merge).
+fn read_layer_config(store: &Path, name: &str) -> std::collections::HashMap<String, i64> {
+    let base_path = layout::layer_path(store, name, "base");
+    let base = if base_path.exists() {
+        std::fs::read_to_string(&base_path)
+            .ok()
+            .and_then(|c| serde_yaml::from_str::<Value>(&c).ok())
+            .unwrap_or(Value::Mapping(serde_yaml::Mapping::new()))
+    } else {
+        Value::Mapping(serde_yaml::Mapping::new())
+    };
+
+    let mut map = std::collections::HashMap::new();
+    if let Some(layers_val) = crate::yaml::path::get_path(&base, LAYERS_CONFIG_PATH) {
+        if let Value::Mapping(m) = layers_val {
+            for (k, v) in m {
+                if let (Value::String(layer_name), Some(weight)) = (k, v.as_i64()) {
+                    map.insert(layer_name, weight);
+                }
+            }
+        }
+    }
+    map
+}
+
+/// Build the ordered layer list from defaults + `configuration.dc.layers`.
+/// Sorted by weight descending (largest first = lowest priority = merged first),
+/// so the smallest weight has highest priority and wins conflicts.
+fn build_layer_order(store: &Path, name: &str, env_name: &str) -> Vec<String> {
+    let defaults = default_layer_weights(env_name);
+    let overrides = read_layer_config(store, name);
+
+    let mut weight_map: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    for (layer, w) in &defaults {
+        weight_map.insert(layer.clone(), *w);
+    }
+    for (layer, w) in &overrides {
+        weight_map.insert(layer.clone(), *w);
+    }
+
+    let mut entries: Vec<(String, i64)> = weight_map.into_iter().collect();
+    entries.sort_by(|a, b| b.1.cmp(&a.1));
+
+    entries.into_iter().map(|(name, _)| name).collect()
+}
+
 /// Resolve a single store's layers for a named config.
 ///
-/// Merge order: `base.yaml` -> `{DC_ENV}.yaml` -> `local.yaml` -> `secrets.yaml`.
-/// Missing layers are skipped. The result is written to the `.active` file.
+/// Default merge order: `base` → `{DC_ENV}` → `local` → `secrets`
+/// (lowest to highest priority). Custom layers and weights can be defined
+/// in `base.yaml` at `configuration.dc.layers` (map of layer name → weight;
+/// smaller weight = higher priority = merged later = wins).
 pub fn resolve_active(store: &Path, name: &str) -> Result<Value> {
     let env_name = std::env::var("DC_ENV").unwrap_or_else(|_| "dev".into());
-
-    let layer_names: Vec<&str> = {
-        let mut v = vec!["base"];
-        if !env_name.is_empty() {
-            // We'll handle env layer below since we need the owned string
-            v.push("__env__");
-        }
-        v.push("local");
-        v.push("secrets");
-        v
-    };
+    let layer_order = build_layer_order(store, name, &env_name);
 
     let mut layers: Vec<Value> = Vec::new();
 
-    for layer_name in &layer_names {
-        let actual_name = if *layer_name == "__env__" {
-            env_name.as_str()
-        } else {
-            layer_name
-        };
-
-        let path = layout::layer_path(store, name, actual_name);
+    for layer_name in &layer_order {
+        let path = layout::layer_path(store, name, layer_name);
         if !path.exists() {
             continue;
         }
@@ -129,7 +177,6 @@ pub fn resolve_active(store: &Path, name: &str) -> Result<Value> {
 
     // Write the resolved result to .active
     let active = layout::active_path(store, name);
-    // Ensure the config directory exists
     layout::ensure_config(store, name)?;
     let yaml = serde_yaml::to_string(&merged)
         .context("failed to serialize resolved config")?;

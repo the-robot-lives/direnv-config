@@ -93,7 +93,7 @@ fn walk_split(val: &Value, prefix: &str, out: &mut Vec<(String, ParsedSecret)>) 
     }
 }
 
-/// Build a YAML subtree holding each secret encrypted into a `dcenc:v1` token,
+/// Build a YAML subtree holding each secret encrypted into a `🔒:v1` token,
 /// keyed by its dot-path. Suitable for deep-merging into a `secrets.yaml` layer.
 pub fn build_encrypted_tree(
     secrets: &[(String, ParsedSecret)],

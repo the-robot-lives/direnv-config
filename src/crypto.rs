@@ -3,7 +3,7 @@
 //! Secrets are stored at rest as a single self-describing YAML string scalar:
 //!
 //! ```text
-//! dcenc:v1:t<tier>:<base64url(nonce(24) || ciphertext || tag)>
+//! 🔒:v1:t<tier>:<base64url(nonce(24) || ciphertext || tag)>
 //! ```
 //!
 //! The flat-scalar shape keeps merge/path/flatten and every language SDK working
@@ -17,7 +17,8 @@ use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use rand::RngCore;
 
-const PREFIX: &str = "dcenc:v1:";
+const PREFIX: &str = "🔒:v1:";
+const LEGACY_PREFIX: &str = "dcenc:v1:";
 const NONCE_LEN: usize = 24;
 
 fn b64url() -> base64::engine::general_purpose::GeneralPurpose {
@@ -26,18 +27,22 @@ fn b64url() -> base64::engine::general_purpose::GeneralPurpose {
 
 /// True if `s` is a `dc` encrypted token. Cheap prefix check — never touches the key.
 pub fn is_encrypted(s: &str) -> bool {
-    s.starts_with(PREFIX)
+    s.starts_with(PREFIX) || s.starts_with(LEGACY_PREFIX)
+}
+
+fn strip_any_prefix(s: &str) -> Option<&str> {
+    s.strip_prefix(PREFIX).or_else(|| s.strip_prefix(LEGACY_PREFIX))
 }
 
 /// Parse the sensitivity tier from a token without decrypting it.
 pub fn token_tier(s: &str) -> Option<u8> {
-    let rest = s.strip_prefix(PREFIX)?;
+    let rest = strip_any_prefix(s)?;
     let rest = rest.strip_prefix('t')?;
     let (tier_str, _) = rest.split_once(':')?;
     tier_str.parse::<u8>().ok()
 }
 
-/// Encrypt `plaintext` into a `dcenc:v1` token carrying the sensitivity `tier`.
+/// Encrypt `plaintext` into a `🔒:v1` token carrying the sensitivity `tier`.
 pub fn encode_token(plaintext: &str, tier: u8, key: &[u8; 32]) -> Result<String> {
     let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
     let mut nonce_bytes = [0u8; NONCE_LEN];
@@ -52,10 +57,9 @@ pub fn encode_token(plaintext: &str, tier: u8, key: &[u8; 32]) -> Result<String>
     Ok(format!("{PREFIX}t{tier}:{}", b64url().encode(&blob)))
 }
 
-/// Decrypt a `dcenc:v1` token, returning `(tier, plaintext)`.
+/// Decrypt a `🔒:v1` (or legacy `dcenc:v1`) token, returning `(tier, plaintext)`.
 pub fn decode_token(token: &str, key: &[u8; 32]) -> Result<(u8, String)> {
-    let rest = token
-        .strip_prefix(PREFIX)
+    let rest = strip_any_prefix(token)
         .ok_or_else(|| anyhow!("not a dc encrypted token"))?;
     let rest = rest
         .strip_prefix('t')

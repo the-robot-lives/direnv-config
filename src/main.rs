@@ -66,6 +66,50 @@ enum Commands {
         #[arg(long)]
         reveal_restricted: bool,
     },
+    /// Generate a random secret (encrypted by default)
+    Gen {
+        /// Output hex characters instead of alphanumeric
+        #[arg(long, short = 'x')]
+        hex: bool,
+        /// Output base64 characters instead of alphanumeric
+        #[arg(long, short = 'b')]
+        base64: bool,
+        /// Length of the generated secret (default: 64)
+        #[arg(default_value = "64")]
+        length: usize,
+        /// Output raw plaintext instead of encrypted token
+        #[arg(long)]
+        raw: bool,
+        /// Sensitivity tier 0-3 (default: 1)
+        #[arg(long, short = 't', default_value = "1", value_parser = clap::value_parser!(u8).range(0..=3))]
+        tier: u8,
+    },
+    /// Encrypt a plaintext value into a 🔒:v1 token
+    Encrypt {
+        /// The plaintext value to encrypt
+        #[arg(long)]
+        value: Option<String>,
+        /// Read plaintext from a file
+        #[arg(long, value_name = "FILE")]
+        from: Option<String>,
+        /// Read plaintext from stdin
+        #[arg(long)]
+        stdin: bool,
+        /// Sensitivity tier 0-1 (default: 0)
+        #[arg(long, short = 't', default_value = "0", value_parser = clap::value_parser!(u8).range(0..=1))]
+        tier: u8,
+        /// Scan input for "🔒<plaintext>" placeholders and encrypt them in place
+        #[arg(long)]
+        parsed: bool,
+        /// With --parsed --from, overwrite the file in place instead of printing to stdout
+        #[arg(long, requires = "parsed")]
+        inline: bool,
+    },
+    /// Decrypt a 🔒:v1 token and print its plaintext
+    Decrypt {
+        /// The encrypted token (🔒:v1:t<tier>:<payload>), or pipe via stdin
+        token: Option<String>,
+    },
     /// Set a config value
     Set {
         name: String,
@@ -179,6 +223,22 @@ enum Commands {
         #[arg(long)]
         yes: bool,
     },
+    /// Scan for 🎲 placeholders and generate secrets in place
+    #[command(name = "gen-secrets")]
+    GenSecrets {
+        /// Input file containing 🎲 placeholders
+        #[arg(long, value_name = "FILE")]
+        file: Option<String>,
+        /// Read from stdin
+        #[arg(long)]
+        stdin: bool,
+        /// Overwrite --file in place instead of printing to stdout
+        #[arg(long)]
+        inline: bool,
+        /// Sensitivity tier for encrypted secrets (default: 1)
+        #[arg(long, short = 't', default_value = "1", value_parser = clap::value_parser!(u8).range(0..=3))]
+        tier: u8,
+    },
     /// Infisical roundtripping (secrets-map driven)
     Infisical {
         #[command(subcommand)]
@@ -231,7 +291,7 @@ enum ConfigCmd {
         from: Option<String>,
         #[arg(long)]
         stdin: bool,
-        /// The provided value is already an encrypted dcenc token
+        /// The provided value is already an encrypted 🔒:v1 token
         #[arg(long)]
         encrypted: bool,
         #[arg(long)]
@@ -266,6 +326,15 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Get { name, path, raw, r#override, fallback, auto, default, reveal, clippy, reveal_restricted } => {
             cmd::get::run(&name, path.as_deref(), raw, r#override.as_deref(), fallback.as_deref(), &auto, default.as_deref(), reveal, clippy, reveal_restricted)
+        }
+        Commands::Gen { hex, base64, length, raw, tier } => {
+            cmd::gen::run(hex, base64, length, raw, tier)
+        }
+        Commands::Encrypt { value, from, stdin, tier, parsed, inline } => {
+            cmd::encrypt::run(value.as_deref(), from.as_deref(), stdin, tier, parsed, inline)
+        }
+        Commands::Decrypt { token } => {
+            cmd::decrypt::run(token.as_deref())
         }
         Commands::Set { name, key, value, layer, no_bump } => {
             cmd::set::run(&name, &key, &value, layer.as_deref(), no_bump)
@@ -337,6 +406,9 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Push { subject, path, to, dry_run, yes } => {
             cmd::push::run(&subject, &path, &to, dry_run, yes)
+        }
+        Commands::GenSecrets { file, stdin, inline, tier } => {
+            cmd::gen_secrets::run(file.as_deref(), stdin, inline, tier)
         }
         Commands::Infisical { sub } => match sub {
             InfisicalCmd::Compare { path, to } => cmd::infisical::compare(&path, &to),

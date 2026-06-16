@@ -1,6 +1,6 @@
 //! `dc bat` — browse/search config entries with secrets masked.
 //!
-//! Renders resolved config as YAML with `dcenc:` secrets replaced by a tiered
+//! Renders resolved config as YAML with `🔒:` secrets replaced by a tiered
 //! redaction placeholder (unless `--reveal`) and `⛔` shadowed values always
 //! masked. Supports regex include/exclude filters on the full concatenated key
 //! path (e.g. `cf.access.client_secret`) and on the value. Output is piped to

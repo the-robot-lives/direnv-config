@@ -1,7 +1,7 @@
 //! `dc config get/set/setall` — locate and edit secrets in source `.envrc*` files.
 //!
 //! These commands operate on the literal hand-authored heredoc files (not the
-//! state store), encrypting secret values at rest inline as `🔒 dcenc:…` and
+//! state store), encrypting secret values at rest inline as `🔒 🔒:…` and
 //! preserving all surrounding formatting/comments via line splicing.
 
 use anyhow::{bail, Result};
@@ -203,7 +203,10 @@ fn preview(lines: &[String], key_line: usize, last_line: usize, new_display: Opt
 }
 
 fn redact_for_display(line: &str) -> String {
-    // Mask any dcenc token in the displayed line.
+    if let Some(pos) = line.find("🔒:v1:") {
+        let prefix = &line[..pos];
+        return format!("{prefix}**redacted**\"");
+    }
     if let Some(pos) = line.find("dcenc:v1:") {
         let prefix = &line[..pos];
         return format!("{prefix}**redacted**\"");
@@ -432,7 +435,7 @@ mod tests {
         assert!(out.iter().any(|l| l == "zone: z"));
         // the secret line now holds an encrypted token, still 🔒❗ tier-1, indented 2
         let line = out.iter().find(|l| l.contains("client_secret")).unwrap();
-        assert!(line.starts_with("  client_secret: \"🔒❗ dcenc:v1:t1:"));
+        assert!(line.starts_with("  client_secret: \"🔒❗ 🔒:v1:t1:"));
     }
 
     #[test]
@@ -446,7 +449,7 @@ mod tests {
         let new_line = compute_set_line(&loc, 0, &token);
         let out = splice_set(&src, &loc, new_line);
         // The 4-line block is gone; zone survives directly after.
-        assert!(out.iter().any(|l| l.starts_with("account_id: \"🔒 dcenc:")));
+        assert!(out.iter().any(|l| l.starts_with("account_id: \"🔒 🔒:v1:")));
         assert!(out.iter().any(|l| l == "zone: z"));
         assert!(!out.iter().any(|l| l.contains("line-two")));
     }
@@ -460,7 +463,7 @@ mod tests {
         let (idx, line) = errata_compute(&src, "cf", "access.foobar", 0, &token).unwrap();
         // Inserted after access.client_id (index 3), indented 2.
         assert_eq!(idx, 3);
-        assert!(line.starts_with("  foobar: \"🔒 dcenc:"));
+        assert!(line.starts_with("  foobar: \"🔒 🔒:v1:"));
         let mut out = src.clone();
         out.insert(idx, line);
         assert_eq!(out[2], "  client_id: pub");
@@ -474,6 +477,6 @@ mod tests {
         let token = crate::crypto::encode_token("t", 0, &KEY).unwrap();
         let (idx, line) = errata_compute(&src, "cf", "api_token", 0, &token).unwrap();
         assert_eq!(idx, 2); // the YAML terminator line index
-        assert!(line.starts_with("api_token: \"🔒 dcenc:"));
+        assert!(line.starts_with("api_token: \"🔒 🔒:v1:"));
     }
 }
