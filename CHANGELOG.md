@@ -3,6 +3,16 @@
 ## Unreleased
 
 ### Fixed
+- Concurrent `dc set`/`yaml`/`unset`/`prune`/`purge`/`bump` now take an exclusive
+  advisory lock (`flock` on `<store>/.lock`) for the whole read-modify-write, so
+  simultaneous invocations from different shells/tabs can no longer lose each
+  other's writes or drop `.version` increments
+- Read-modify-write commands refuse to overwrite a layer file that exists but
+  fails to parse (previously a corrupt/partial layer was silently replaced with
+  an empty mapping, losing all its keys)
+- `dc-init` tabbing bridge now reads the session-scoped namespace `${DC_TAB_NS:-tab}`
+  instead of a hardcoded global `tab` config, so a version bump in one tab no
+  longer re-applies another tab's last-set status/theme/emoji into every shell
 - `purge` tombstone now written to `base.yaml` layer instead of `.active` directly, so it survives `resolve_active` regeneration on shell reload
 - Parent-chain awareness: purge detects configs inherited from parent stores and writes a blocking tombstone
 

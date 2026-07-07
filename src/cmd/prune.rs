@@ -3,6 +3,7 @@ use anyhow::Result;
 pub fn run(name: &str, keys: &[String], layer: Option<&str>, no_bump: bool) -> Result<()> {
     let cwd = std::env::current_dir()?;
     let store = crate::store::ensure_store(&cwd)?;
+    let _lock = crate::store::lock_store(&store)?;
     crate::store::ensure_config(&store, name)?;
 
     let layer_name = layer.unwrap_or("base");
@@ -20,13 +21,7 @@ pub fn run(name: &str, keys: &[String], layer: Option<&str>, no_bump: bool) -> R
         std::fs::write(&layer_file, yaml_str)?;
     } else {
         // Prune specific branches within the config
-        let mut doc = if layer_file.exists() {
-            let content = std::fs::read_to_string(&layer_file)?;
-            serde_yaml::from_str(&content)
-                .unwrap_or(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()))
-        } else {
-            serde_yaml::Value::Mapping(serde_yaml::Mapping::new())
-        };
+        let mut doc = crate::store::load_layer(&layer_file)?;
 
         for key in keys {
             // Write a tombstone at the key location

@@ -22,12 +22,16 @@ _dc_precmd_hook() {
     _DC_LAST_VERSION="$cur"
     # Re-export env vars from resolved config
     eval "$(dc env 2>/dev/null)" || true
-    # Bridge to tabbing-on if loaded
+    # Bridge to tabbing-on if loaded.
+    # Read the session-scoped namespace so each tab pulls its OWN status/theme,
+    # not the last value any other tab happened to write. tabbing-on exports
+    # DC_TAB_NS=tab-<uuid> per session; fall back to the shared "tab" config.
     if type tabbing-status >/dev/null 2>&1; then
-      local new_status new_theme new_emoji
-      new_status=$(dc get tab status 2>/dev/null) || true
-      new_theme=$(dc get tab theme 2>/dev/null) || true
-      new_emoji=$(dc get tab emoji 2>/dev/null) || true
+      local new_status new_theme new_emoji tab_ns
+      tab_ns="${DC_TAB_NS:-tab}"
+      new_status=$(dc get "$tab_ns" status 2>/dev/null) || true
+      new_theme=$(dc get "$tab_ns" theme 2>/dev/null) || true
+      new_emoji=$(dc get "$tab_ns" emoji 2>/dev/null) || true
       [ -n "$new_status" ] && [ "$new_status" != "${TAB_STATUS:-}" ] && tabbing-status "$new_status" 2>/dev/null || true
       [ -n "$new_theme" ] && [ "$new_theme" != "${TAB_THEME:-}" ] && tabbing-style --theme="$new_theme" 2>/dev/null || true
       [ -n "$new_emoji" ] && [ "$new_emoji" != "${TAB_EMOJI:-}" ] && tabbing-style -e "$new_emoji" 2>/dev/null || true
@@ -51,10 +55,11 @@ _dc_precmd_hook() {
     _DC_LAST_VERSION="$cur"
     eval "$(dc env 2>/dev/null)" || true
     if type tabbing-status >/dev/null 2>&1; then
-      local new_status new_theme new_emoji
-      new_status=$(dc get tab status 2>/dev/null) || true
-      new_theme=$(dc get tab theme 2>/dev/null) || true
-      new_emoji=$(dc get tab emoji 2>/dev/null) || true
+      local new_status new_theme new_emoji tab_ns
+      tab_ns="${DC_TAB_NS:-tab}"
+      new_status=$(dc get "$tab_ns" status 2>/dev/null) || true
+      new_theme=$(dc get "$tab_ns" theme 2>/dev/null) || true
+      new_emoji=$(dc get "$tab_ns" emoji 2>/dev/null) || true
       [ -n "$new_status" ] && [ "$new_status" != "${TAB_STATUS:-}" ] && tabbing-status "$new_status" 2>/dev/null || true
       [ -n "$new_theme" ] && [ "$new_theme" != "${TAB_THEME:-}" ] && tabbing-style --theme="$new_theme" 2>/dev/null || true
       [ -n "$new_emoji" ] && [ "$new_emoji" != "${TAB_EMOJI:-}" ] && tabbing-style -e "$new_emoji" 2>/dev/null || true

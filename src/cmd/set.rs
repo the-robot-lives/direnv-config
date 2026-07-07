@@ -3,18 +3,13 @@ use anyhow::Result;
 pub fn run(name: &str, key: &str, value: &str, layer: Option<&str>, no_bump: bool) -> Result<()> {
     let cwd = std::env::current_dir()?;
     let store = crate::store::ensure_store(&cwd)?;
+    let _lock = crate::store::lock_store(&store)?;
     crate::store::ensure_config(&store, name)?;
 
     let layer_name = layer.unwrap_or("local");
     let layer_file = crate::store::layout::layer_path(&store, name, layer_name);
 
-    let mut doc = if layer_file.exists() {
-        let content = std::fs::read_to_string(&layer_file)?;
-        serde_yaml::from_str(&content)
-            .unwrap_or(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()))
-    } else {
-        serde_yaml::Value::Mapping(serde_yaml::Mapping::new())
-    };
+    let mut doc = crate::store::load_layer(&layer_file)?;
 
     // Parse the value as YAML to get proper typing (numbers, bools)
     let yaml_val: serde_yaml::Value = serde_yaml::from_str(value)

@@ -18,6 +18,7 @@ pub fn run(name: Option<&str>, hard: bool) -> Result<()> {
 
     match name {
         Some(n) => {
+            let _lock = crate::store::lock_store(&store)?;
             let config_dir = crate::store::layout::config_dir(&store, n);
             let exists_locally = config_dir.exists();
             let exists_in_parent = config_exists_in_parent(&store, n);

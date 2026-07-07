@@ -55,6 +55,29 @@ pub fn active_path(store: &Path, name: &str) -> PathBuf {
     store.join(name).join(".active")
 }
 
+/// Load a YAML layer file for a read-modify-write.
+///
+/// Returns an empty mapping when the file is absent or empty, but returns an
+/// error (rather than silently substituting an empty mapping) when the file
+/// exists yet cannot be parsed. This prevents a corrupt or partially written
+/// layer from being clobbered — and its data lost — by the write that follows.
+pub fn load_layer(path: &Path) -> Result<serde_yaml::Value> {
+    if !path.exists() {
+        return Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+    }
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read layer: {}", path.display()))?;
+    if content.trim().is_empty() {
+        return Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+    }
+    serde_yaml::from_str(&content).with_context(|| {
+        format!(
+            "failed to parse layer, refusing to overwrite it: {}",
+            path.display()
+        )
+    })
+}
+
 /// Create the store directory and initialize .meta if it does not exist.
 /// Returns the store path.
 pub fn ensure_store(dir: &Path) -> Result<PathBuf> {
