@@ -4,7 +4,7 @@
 
 `direnv-config` replaces sprawling `export VAR=value` `.envrc` files with structured, versioned, mergeable YAML configs. A Rust CLI (`dc`) manages config stores on disk; a direnv stdlib extension (`dc_yaml`, `dc_export`) bridges the YAML store into shell environment variables. A `precmd` shell hook watches for version changes, enabling child-process IPC — any process can mutate the YAML store and the parent shell picks up changes on the next prompt.
 
-Four read-only SDK clients (TypeScript, Python, Elixir, PHP) provide application-level access to resolved configs without shelling out.
+Five SDK clients (TypeScript, Python, Elixir, PHP — read-only; Rust — read + write) provide application-level access to resolved configs without shelling out. Shared contract tests (`sdk/contract-tests/`) keep all SDKs behaviorally aligned, including opaque passthrough of encrypted secrets.
 
 ## System Diagram
 
@@ -30,11 +30,17 @@ graph TB
         dc_cfg["_dc/base.yaml<br/>(flatten rules)"]
     end
 
-    subgraph SDKs["SDK Clients (read-only)"]
+    subgraph SDKs["SDK Clients"]
         ts["TypeScript"]
         py["Python"]
         ex["Elixir"]
         php["PHP"]
+        rs["Rust (r/w)"]
+    end
+
+    subgraph Remote["Remote Sync"]
+        inf["Infisical<br/>(reqwest + rustls)"]
+        k8s["Kubernetes<br/>(kubectl)"]
     end
 
     envrc -->|writes| yaml_cmd
@@ -50,18 +56,26 @@ graph TB
     set_cmd -->|writes local.yaml| layers
     get_cmd -->|reads| active
     ts & py & ex & php -->|reads| active
+    rs -->|reads + writes| layers
+    CLI -->|compare/push<br/>SHA-256 digests| inf
+    CLI -->|compare/push| k8s
 ```
 
 ## Core Components
 
 | Component | Purpose |
 |-----------|---------|
-| `src/cmd/` | CLI subcommands (yaml, get, set, env, init, list, bump, prune, purge, secrets, status, unset) |
-| `src/store/` | Store discovery, layout, version tracking, layer resolution, parent-chain merging |
+| `src/cmd/` | CLI subcommands — store ops (yaml, get, set, env, init, list, bump, prune, purge, status, unset), secrets (secrets, gen, gen_secrets, encrypt, decrypt, bat), source editing (config), remote sync (compare, push, infisical) |
+| `src/store/` | Store discovery, layout, locking, version tracking, layer resolution, parent-chain merging |
 | `src/yaml/` | Deep merge engine, path expression evaluator, flatten-to-env-var system |
+| `src/envrc/` | Line-oriented `.envrc*` heredoc locator — edits hand-authored source files preserving comments/formatting |
+| `src/*.rs` | Secret machinery (secret, crypto, shadow, audit, secretcmp, secretsmap), Infisical/kubectl clients, settings, target addressing |
 | `lib/direnv-stdlib.sh` | direnv extension functions (`dc_yaml`, `dc_export`, `dc_get`, `dc_set`) |
 | `bin/dc-init` | Shell hook generator — registers `precmd` for version-based IPC |
-| `sdk/` | Read-only clients in 4 languages with native and CLI backends |
+| `bin/tabbing-on-step` | Zellij pane-title helper (step name + emoji via the IPC model) |
+| `shell/dc.zsh` | Zsh completions |
+| `sdk/` | Client libraries in 5 languages with native and CLI backends; `contract-tests/` shared fixtures |
+| `demo/` | Simulated project/k8 `.envrc` trees with expected resolved-state fixtures for testing |
 
 ## Layer Resolution
 
@@ -114,6 +128,20 @@ Secrets are first-class and distinct from settings (see the README's
   (`kubectl`) clients power `dc compare`/`dc push`/`dc infisical`; comparison uses
   SHA-256 digests so no plaintext or length leaks.
 
+## Noizu Ecosystem Fit
+
+Unlike the sibling shell utilities under `utilities/`, which source the shared
+`share/k8-lib/` and install via the monorepo's `make install-utilities`,
+`direnv-config` is a standalone Rust project with its own `make install`
+(binary → `~/.local/bin/dc`, stdlib symlink → `~/.config/direnv/lib/dc.sh`,
+`dc-init` hook in `.zshrc`). It is a *dependency* of the ecosystem rather than
+a consumer of it: the monorepo's `.envrc.k8.dc` holds scalar build/deploy
+config (AWS, Docker, Helm, Infisical creds) referenced by `.infra-config.yaml`
+tooling, and the secrets pipeline (`dc infisical`, `dc compare`, `dc push`)
+feeds the Infisical → InfisicalSecret CRD → k8s Secret flow. The `demo/k8/`
+tree simulates that infra layout (including k8-lib-style `.envrc` files) for
+testing.
+
 ## Technology Stack
 
 | Layer | Technology |
@@ -126,7 +154,8 @@ Secrets are first-class and distinct from settings (see the README's
 | State location | `~/.local/state/direnv-config/` (XDG_STATE_HOME) |
 | Settings/key | `~/.config/direnv-config/settings.yaml` |
 | Store addressing | Path-to-name: strip leading `/`, replace `/` with `-`, SHA-256 truncation at 200 chars |
-| SDKs | TypeScript, Python, Elixir, PHP — native (file read) + CLI backends |
+| SDKs | TypeScript, Python, Elixir, PHP (read-only), Rust (read + write) — native (file) + CLI backends |
+| CI | GitHub Actions (`ci.yml`, `publish-sdks.yml`) |
 
 ## Key Decisions
 
@@ -134,4 +163,5 @@ Secrets are first-class and distinct from settings (see the README's
 - **Monotonic version counter**: Cheap change detection without filesystem watchers
 - **Deep merge with tombstones**: `_dc_pruned: true` allows child stores to explicitly delete inherited config without removing the parent
 - **Flatten rules in `_dc` config**: Decouples YAML structure from env var naming — the mapping is itself configuration
-- **SDK dual backends**: Native backend reads YAML directly (no `dc` binary needed); CLI backend shells out for compatibility
+- **SDK dual backends**: Native backend reads YAML directly (no `dc` binary needed); CLI backend shells out for compatibility. Rust SDK additionally writes; contract tests hold all five to the same expectations
+- **Standalone install**: own `make install`, not `make install-utilities` — no `k8-lib` dependency, so `dc` bootstraps environments the other utilities rely on
