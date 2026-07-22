@@ -8,7 +8,7 @@ CARGO        := cargo
 RELEASE_BIN  := target/release/dc
 
 .PHONY: compile build test install uninstall check doctor help clean
-.PHONY: install-direnv-lib install-shell-hook install-cli
+.PHONY: install-direnv-lib install-shell-hook install-cli install-completions
 .PHONY: sdk-test sdk-build sdk-publish sdk-public sdk-clean
 
 help:
@@ -69,6 +69,7 @@ test:
 # --- Install ---
 
 install: compile install-direnv-lib install-shell-hook install-cli
+	@$(MAKE) install-completions
 	@echo ""
 	@echo "==> direnv-config installed"
 	@echo "    1. dc binary      → $(INSTALL_DIR)/dc"
@@ -125,6 +126,22 @@ install-cli:
 			install -m 755 bin/tabbing-on-step "$(INSTALL_DIR)/tabbing-on-step"; \
 		fi; \
 		echo "    $(INSTALL_DIR)/tabbing-on-step"; \
+	fi
+
+install-completions:
+	@DATA_DIR="$${XDG_DATA_HOME:-$$HOME/.local/share}"; \
+	BASH_DIR="$$DATA_DIR/bash-completion/completions"; \
+	ZSH_DIR="$$DATA_DIR/zsh/site-functions"; \
+	if ! mkdir -p "$$BASH_DIR" "$$ZSH_DIR" 2>/dev/null; then \
+		echo "dc: cannot write completion dirs; skipping."; \
+		exit 0; \
+	fi; \
+	cp completions/dc.bash "$$BASH_DIR/dc"; \
+	cp completions/_dc "$$ZSH_DIR/_dc"; \
+	echo "dc: completions installed (bash-completion + zsh)"; \
+	if ! grep -qs "zsh/site-functions" "$$HOME/.zshrc" 2>/dev/null; then \
+		echo "dc: zsh users — add to .zshrc before compinit:"; \
+		echo "  fpath=($$ZSH_DIR \$$fpath)"; \
 	fi
 
 # --- Uninstall ---

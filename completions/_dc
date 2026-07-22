@@ -1,0 +1,270 @@
+#compdef dc
+# zsh completion for dc (direnv-config).
+#
+# Install (either works):
+#   1. Copy onto $fpath as `_dc` (done by `make install-completions`),
+#      then ensure the directory is in fpath before compinit runs.
+#   2. Source this file directly from .zshrc (after compinit).
+
+# Dynamic value helpers — all guarded so completion never hangs.
+
+# Config names from dc __complete-purge (one per line, designed for completion).
+# Used for the <name> arg of get/set/unset/prune/purge/yaml and <subject> of bat/config.
+_dc_configs() {
+  local -a configs
+  configs=(${(f)"$(dc __complete-purge 2>/dev/null)"})
+  _describe -t configs 'config name' configs
+}
+
+# Secret key names from dc secrets (text output: indented keys under config headers).
+_dc_secret_keys() {
+  local -a keys
+  keys=(${(f)"$(dc secrets 2>/dev/null | awk '/^  [^ ]/{print $1}')"})
+  _describe -t keys 'secret key' keys
+}
+
+_dc() {
+  local curcontext="$curcontext" state line ret=1
+  typeset -A opt_args
+
+  _arguments -C \
+    '(-V --version)'{-V,--version}'[show version and exit]' \
+    '(-h --help)'{-h,--help}'[print help]' \
+    '1:command:->command' \
+    '*::arg:->args' && ret=0
+
+  case $state in
+    command)
+      local -a commands=(
+        'yaml:Merge YAML from stdin into a named config'
+        'get:Read a config value by path'
+        'gen:Generate a random secret (encrypted by default)'
+        'encrypt:Encrypt a plaintext value into a locked token'
+        'decrypt:Decrypt a locked token and print its plaintext'
+        'set:Set a config value'
+        'unset:Remove a key from a named config'
+        'prune:Remove named configs or branches within them'
+        'env:Export resolved config as shell env vars'
+        'bump:Bump the version counter'
+        'init:Initialize a config store for the current directory'
+        'status:Show current config state'
+        'list:List all known config stores'
+        'purge:Permanently delete a named config or entire store'
+        'secrets:List secret key names per config'
+        'bat:Browse/search config entries with secrets masked'
+        'config:Locate and edit secrets in source envrc files'
+        'compare:Compare a local secret against remote targets'
+        'push:Force-push local secrets to a remote target'
+        'gen-secrets:Scan for placeholders and generate secrets in place'
+        'infisical:Infisical roundtripping (secrets-map driven)'
+      )
+      _describe -t commands 'dc command' commands && ret=0
+      ;;
+    args)
+      case $words[1] in
+        yaml)
+          _arguments \
+            '--layer=[config layer name]:layer:' \
+            '--replace[replace entire config instead of merging]' \
+            '--replace-key=[replace only this key path]:key:' \
+            '--if-missing[only merge if config does not exist]' \
+            '--no-bump[do not bump version counter]' \
+            '1:config name:_dc_configs' && ret=0
+          ;;
+        get)
+          _arguments \
+            '--raw[output raw value without formatting]' \
+            '--override=[env var that overrides dc (env wins)]:env var:' \
+            '--fallback=[env var fallback if dc misses (dc wins)]:env var:' \
+            '--auto=[auto-generate if all sources miss: password|hex [length]]:type:' \
+            '--default=[static default if all sources miss]:value:' \
+            '--reveal[decrypt and print an encrypted secret value]' \
+            '--clippy[decrypt and copy to clipboard (macOS)]' \
+            '--reveal-restricted[decrypt a shadowed/restricted secret]' \
+            '1:config name:_dc_configs' \
+            '2:path:' && ret=0
+          ;;
+        gen)
+          _arguments \
+            '(-x --hex)'{-x,--hex}'[output hex characters]' \
+            '(-b --base64)'{-b,--base64}'[output base64 characters]' \
+            '--raw[output raw plaintext instead of encrypted token]' \
+            '(-t --tier)'{-t,--tier}'=[sensitivity tier 0-3 (default: 1)]:tier:(0 1 2 3)' \
+            '1:length:' && ret=0
+          ;;
+        encrypt)
+          _arguments \
+            '--value=[plaintext value to encrypt]:value:' \
+            '--from=[read plaintext from a file]:file:_files' \
+            '--stdin[read plaintext from stdin]' \
+            '(-t --tier)'{-t,--tier}'=[sensitivity tier 0-1 (default: 0)]:tier:(0 1)' \
+            '--parsed[scan input for placeholders and encrypt them in place]' \
+            '--inline[with --parsed --from, overwrite the file in place]' && ret=0
+          ;;
+        decrypt)
+          _arguments '1:token:' && ret=0
+          ;;
+        set)
+          _arguments \
+            '--layer=[config layer name]:layer:' \
+            '--no-bump[do not bump version counter]' \
+            '1:config name:_dc_configs' \
+            '2:key:' \
+            '3:value:' && ret=0
+          ;;
+        unset)
+          _arguments \
+            '--layer=[config layer name]:layer:' \
+            '--no-bump[do not bump version counter]' \
+            '1:config name:_dc_configs' \
+            '*:keys:' && ret=0
+          ;;
+        prune)
+          _arguments \
+            '--layer=[config layer name]:layer:' \
+            '--no-bump[do not bump version counter]' \
+            '1:config name:_dc_configs' \
+            '*:keys:' && ret=0
+          ;;
+        env)
+          _arguments \
+            '--list[list all env vars]' \
+            '--diff[show diff against current environment]' && ret=0
+          ;;
+        bump)
+          ;;  # no args
+        init)
+          _arguments '--from-envrc=[initialize from an envrc file]:file:_files' && ret=0
+          ;;
+        status)
+          ;;  # no args
+        list)
+          ;;  # no args
+        purge)
+          _arguments \
+            '--hard[hard delete — remove files without writing tombstones]' \
+            '1:config name:_dc_configs' && ret=0
+          ;;
+        secrets)
+          _arguments '--json[output as JSON]' && ret=0
+          ;;
+        bat)
+          _arguments \
+            '--all[render every config in the resolved chain]' \
+            '--reveal[decrypt and show secret values]' \
+            '--flat[flat output: one line per key, no values]' \
+            '--filter-key=[keep entries whose key path matches regex]:regex:' \
+            '--filter-value=[keep entries whose value matches regex]:regex:' \
+            '--exclude-key=[drop entries whose key path matches regex]:regex:' \
+            '--exclude-value=[drop entries whose value matches regex]:regex:' \
+            '1:config name:_dc_configs' \
+            '2:scope:' && ret=0
+          ;;
+        config)
+          if (( CURRENT == 2 )); then
+            local -a actions=(
+              'get:Find where a secret is set in envrc files'
+              'set:Encrypt and write a secret value into its envrc source line'
+              'setall:Insert a YAML section above/below an anchor entry'
+              'secure:Move a secret into the shadow store'
+            )
+            _describe -t actions 'config action' actions && ret=0
+          else
+            case $words[2] in
+              get)
+                _arguments \
+                  '1:config name:_dc_configs' \
+                  '2:path:' && ret=0
+                ;;
+              set)
+                _arguments \
+                  '--value=[secret value to write]:value:' \
+                  '--from=[read value from a file]:file:_files' \
+                  '--stdin[read value from stdin]' \
+                  '--encrypted[value is already an encrypted token]' \
+                  '--yes[skip confirmation]' \
+                  '1:config name:_dc_configs' \
+                  '2:path:' && ret=0
+                ;;
+              setall)
+                _arguments \
+                  '--above=[anchor path to insert above]:path:' \
+                  '--below=[anchor path to insert below]:path:' \
+                  '--yes[skip confirmation]' \
+                  '1:config name:_dc_configs' && ret=0
+                ;;
+              secure)
+                _arguments \
+                  '--note=[optional note]:note:' \
+                  '1:config name:_dc_configs' \
+                  '2:path:' && ret=0
+                ;;
+            esac
+          fi
+          ;;
+        compare)
+          _arguments \
+            '--to=[remote target to compare against]:target:' \
+            '1:layer:' \
+            '2:path:' && ret=0
+          ;;
+        push)
+          _arguments \
+            '--to=[remote target to push to]:target:' \
+            '--dry-run[preview without pushing]' \
+            '--yes[skip confirmation]' \
+            '1:config name:_dc_configs' \
+            '2:path:' && ret=0
+          ;;
+        gen-secrets)
+          _arguments \
+            '--file=[input file containing placeholders]:file:_files' \
+            '--stdin[read from stdin]' \
+            '--inline[overwrite --file in place instead of printing to stdout]' \
+            '(-t --tier)'{-t,--tier}'=[sensitivity tier for encrypted secrets (default: 1)]:tier:(0 1 2 3)' && ret=0
+          ;;
+        infisical)
+          if (( CURRENT == 2 )); then
+            local -a actions=(
+              'compare:Compare a mapped Infisical secret against targets'
+              'get:Show live Infisical value next to its dc source'
+              'set:Set the dc source for an Infisical secret NAME'
+            )
+            _describe -t actions 'infisical action' actions && ret=0
+          else
+            case $words[2] in
+              compare)
+                _arguments \
+                  '--to=[remote target to compare against]:target:' \
+                  '1:path:' && ret=0
+                ;;
+              get)
+                _arguments \
+                  '--reveal[show decrypted value]' \
+                  '1:name:' && ret=0
+                ;;
+              set)
+                _arguments \
+                  '--value=[value to set]:value:' \
+                  '--from=[read value from a file]:file:_files' \
+                  '--stdin[read value from stdin]' \
+                  '--encrypted[value is already an encrypted token]' \
+                  '--yes[skip confirmation]' \
+                  '1:name:' && ret=0
+                ;;
+            esac
+          fi
+          ;;
+      esac
+      ;;
+  esac
+
+  return ret
+}
+
+# Dual-mode: autoloaded from fpath (#compdef) vs sourced from .zshrc.
+if [[ "${funcstack[1]}" == "_dc" ]]; then
+  _dc "$@"
+elif (( ${+functions[compdef]} )); then
+  compdef _dc dc
+fi
