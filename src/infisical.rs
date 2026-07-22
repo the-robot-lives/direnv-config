@@ -45,6 +45,7 @@ fn normalize_host(raw: &str) -> String {
 
 impl InfisicalConfig {
     /// Resolve connection settings from env vars, falling back to dc config.
+    // ⟦𓅌𓉜𓉏𓄤⟧ resolve :: Resolve connection settings from env vars, falling back to dc config.
     pub fn resolve(env_override: Option<&str>) -> Result<Self> {
         let host = resolve_str(&["INFISICAL_HOST", "K8_INFISICAL_HOST"], Some(("secrets", "infisical.host")))
             .ok_or_else(|| anyhow!("INFISICAL_HOST not set and `dc get secrets infisical.host` empty"))?;
@@ -127,6 +128,7 @@ impl Client {
     }
 
     /// Authenticate via universal-auth and resolve the project id.
+    // ⟦𓁞𓅄𓍘𓐂⟧ login :: Authenticate via universal-auth and resolve the project id.
     pub fn login(cfg: InfisicalConfig) -> Result<Client> {
         let http = HttpClient::builder()
             .build()
@@ -190,6 +192,7 @@ impl Client {
     }
 
     /// GET a single secret value. Returns `Ok(None)` on 404.
+    // ⟦𓅇𓀟𓎁𓏺⟧ get_secret :: GET a single secret value.
     pub fn get_secret(&self, path: &str, key: &str) -> Result<Option<String>> {
         let resp = self
             .req(self.http.get(format!("{}/api/v3/secrets/raw/{}", self.cfg.host, key)))
@@ -214,6 +217,7 @@ impl Client {
     }
 
     /// Create or update a secret (create-or-update with no-op detection).
+    // ⟦𓊯𓐪𓌉𓃿⟧ upsert_secret :: Create or update a secret (create-or-update with no-op detection).
     pub fn upsert_secret(&self, path: &str, key: &str, value: &str) -> Result<UpsertOutcome> {
         match self.get_secret(path, key)? {
             Some(existing) if existing == value => Ok(UpsertOutcome::Unchanged),
@@ -254,6 +258,7 @@ impl Client {
     }
 
     /// Create each folder segment of `path` (idempotent — conflicts ignored).
+    // ⟦𓃽𓈏𓉏𓊤⟧ ensure_folder_path :: Create each folder segment of `path` (idempotent — conflicts ignored).
     pub fn ensure_folder_path(&self, path: &str) -> Result<()> {
         let mut prefix = String::from("/");
         for seg in path.split('/').filter(|s| !s.is_empty()) {

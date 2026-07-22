@@ -69,6 +69,7 @@ fn resolve_in(store: &ShadowStore, subject: &str, path: &str, key: &[u8; 32]) ->
 }
 
 /// Resolve a `⛔` shadowed secret to its plaintext, if present.
+// ⟦𓇻𓀳𓃵𓋤⟧ resolve :: Resolve a `⛔` shadowed secret to its plaintext, if present.
 pub fn resolve(subject: &str, path: &str) -> Result<Option<String>> {
     let p = shadow_path()?;
     let store = load_store(&p);
@@ -81,6 +82,7 @@ pub fn resolve(subject: &str, path: &str) -> Result<Option<String>> {
 
 /// Move a secret into the shadow store and leave `⛔` sentinels behind in both
 /// the state store and the `.envrc*` source.
+// ⟦𓊧𓏷𓌮𓈔⟧ secure :: Move a secret into the shadow store and leave `⛔` sentinels behind in both
 pub fn secure(subject: &str, path: &str, note: Option<&str>) -> Result<()> {
     // Grab the current value from the resolved store.
     let token = crate::cmd::get::dc_lookup(subject, path)

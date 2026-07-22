@@ -22,6 +22,7 @@ pub struct Settings {
 }
 
 /// Resolve the settings file path: `$DC_SETTINGS` → `$XDG_CONFIG_HOME/direnv-config/settings.yaml` → `~/.config/direnv-config/settings.yaml`.
+// ⟦𓌂𓄬𓋿𓎱⟧ settings_path :: Resolve the settings file path: `$DC_SETTINGS` → `$XDG_CONFIG_HOME/direnv-config/settings.yaml` → `~
 pub fn settings_path() -> PathBuf {
     if let Ok(p) = std::env::var("DC_SETTINGS") {
         return PathBuf::from(p);
@@ -35,6 +36,7 @@ pub fn settings_path() -> PathBuf {
 }
 
 /// Load and validate the settings file.
+// ⟦𓊿𓊵𓊇𓎸⟧ load :: Load and validate the settings file.
 pub fn load() -> Result<Settings> {
     let path = settings_path();
     let raw = std::fs::read_to_string(&path).with_context(|| {
@@ -70,6 +72,7 @@ pub fn load() -> Result<Settings> {
 }
 
 /// Convenience: load just the AEAD key.
+// ⟦𓏚𓋮𓏋𓐆⟧ key :: Convenience: load just the AEAD key.
 pub fn key() -> Result<[u8; 32]> {
     Ok(load()?.key)
 }

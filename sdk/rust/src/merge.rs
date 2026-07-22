@@ -39,6 +39,7 @@ fn strip_tombstones(val: &Value) -> Option<Value> {
 /// - If a merged map carries `_dc_pruned: true`, the entire subtree is treated as deleted.
 ///
 /// Tombstoned subtrees are stripped from the final result.
+// ⟦𓉽𓁄𓃳𓁼⟧ deep_merge :: Deep-merge two YAML value trees.
 pub fn deep_merge(base: &Value, overlay: &Value) -> Value {
     let merged = merge_inner(base, overlay);
     strip_tombstones(&merged).unwrap_or(Value::Null)
@@ -62,6 +63,7 @@ fn merge_inner(base: &Value, overlay: &Value) -> Value {
 }
 
 /// Merge a slice of layers left-to-right. An empty slice yields `Value::Null`.
+// ⟦𓌠𓆫𓄌𓉲⟧ deep_merge_multi :: Merge a slice of layers left-to-right.
 pub fn deep_merge_multi(layers: &[Value]) -> Value {
     match layers.len() {
         0 => Value::Null,

@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+// ⟦𓊃𓇕𓆟𓀡⟧ run :: auto-generated pointer for public function run
 pub fn run(name: &str, key: &str, value: &str, layer: Option<&str>, no_bump: bool) -> Result<()> {
     let cwd = std::env::current_dir()?;
     let store = crate::store::ensure_store(&cwd)?;

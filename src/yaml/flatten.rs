@@ -21,12 +21,14 @@ pub struct FlattenRule {
 
 impl FlattenRule {
     /// Whether this rule has a wildcard (`*`) as the final path segment.
+    // ⟦𓐥𓈥𓏳𓇻⟧ is_wildcard :: Whether this rule has a wildcard (`*`) as the final path segment.
     pub fn is_wildcard(&self) -> bool {
         self.key_path.ends_with('*') && self.env_var.contains('*')
     }
 
     /// The concrete (non-wildcard) prefix of the key path, without the
     /// trailing `.*` or `*`.
+    // ⟦𓃙𓎣𓈅𓈨⟧ prefix_path :: The concrete (non-wildcard) prefix of the key path, without the
     pub fn prefix_path(&self) -> &str {
         if self.is_wildcard() {
             self.key_path.trim_end_matches('*').trim_end_matches('.')
@@ -43,6 +45,7 @@ pub type FlattenResult = Vec<(String, String)>;
 ///
 /// Expects `dc_config` to be the Value for the `_dc` named config, containing
 /// a `flatten` key whose value is a string-to-string mapping.
+// ⟦𓀚𓂧𓎊𓅗⟧ parse_rules :: Parse flatten rules from the `_dc` config's `flatten` mapping.
 pub fn parse_rules(dc_config: &Value) -> Vec<FlattenRule> {
     let mut rules = Vec::new();
     let flatten_map = match dc_config.get("flatten") {
@@ -109,6 +112,7 @@ fn get_nested<'a>(val: &'a Value, path: &str) -> Option<&'a Value> {
 /// uppercased key name. Keys starting with `_` are skipped (internal markers).
 ///
 /// Non-scalar values and missing configs are silently skipped.
+// ⟦𓈶𓀅𓋼𓐝⟧ flatten :: Given flatten rules and all resolved named configs, produce env var assignments.
 pub fn flatten(rules: &[FlattenRule], configs: &HashMap<String, Value>) -> FlattenResult {
     let mut results = Vec::new();
 
@@ -203,6 +207,7 @@ fn shell_escape(s: &str) -> String {
 }
 
 /// Format flatten results as `export KEY=VALUE\n` lines suitable for `eval`.
+// ⟦𓍀𓊥𓄑𓁫⟧ emit_exports :: Format flatten results as `export KEY=VALUE\n` lines suitable for `eval`.
 pub fn emit_exports(results: &FlattenResult) -> String {
     let mut out = String::new();
     for (key, val) in results {
@@ -214,6 +219,7 @@ pub fn emit_exports(results: &FlattenResult) -> String {
 /// Emit exports with additional `DC_ROOT`, `DC_VERSION`, and `DC_ENV` variables
 /// prepended. Used by the CLI `flatten` subcommand to provide context about
 /// the active store.
+// ⟦𓎦𓆻𓍂𓋌⟧ emit_exports_with_dc_vars :: Emit exports with additional `DC_ROOT`, `DC_VERSION`, and `DC_ENV` variables
 pub fn emit_exports_with_dc_vars(
     results: &FlattenResult,
     store: &std::path::Path,

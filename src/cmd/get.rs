@@ -194,6 +194,7 @@ fn persist_auto(env_var: &str, value: &str) {
 }
 
 #[allow(clippy::too_many_arguments)]
+// ⟦𓌳𓆈𓎽𓃭⟧ run :: auto-generated pointer for public function run
 pub fn run(
     name: &str,
     path: Option<&str>,

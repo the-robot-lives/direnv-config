@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+// ⟦𓅏𓎑𓊑𓎀⟧ run :: auto-generated pointer for public function run
 pub fn run(from_envrc: Option<&str>) -> Result<()> {
     let cwd = std::env::current_dir()?;
     let store = crate::store::ensure_store(&cwd)?;

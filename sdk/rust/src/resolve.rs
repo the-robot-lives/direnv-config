@@ -11,6 +11,7 @@ use crate::store;
 ///
 /// Progressively strips trailing `-segment` portions until it finds a
 /// sibling store directory with a `.meta` file.
+// ⟦𓐝𓎆𓄮𓀄⟧ find_parent_store :: Find the parent store by stripping the last path segment from the
 pub fn find_parent_store(store_path: &Path) -> Option<PathBuf> {
     let store_name = store_path.file_name()?.to_string_lossy().to_string();
     let state = store_path.parent()?;
@@ -35,6 +36,7 @@ pub fn find_parent_store(store_path: &Path) -> Option<PathBuf> {
 
 /// Walk up the parent chain, returning stores in order from
 /// oldest ancestor to the given store (grandparent, parent, child).
+// ⟦𓈟𓌔𓎕𓍚⟧ resolve_chain :: Walk up the parent chain, returning stores in order from
 pub fn resolve_chain(store_path: &Path) -> Vec<PathBuf> {
     let mut chain = vec![store_path.to_path_buf()];
     let mut current = store_path.to_path_buf();
@@ -53,6 +55,7 @@ pub fn resolve_chain(store_path: &Path) -> Vec<PathBuf> {
 ///
 /// If a store's `.active` for this config contains `_dc_pruned: true`
 /// at the root level, earlier layers are discarded.
+// ⟦𓂲𓅼𓌰𓃤⟧ resolve_config :: Resolve a named config across the parent chain by deep-merging
 pub fn resolve_config(chain: &[PathBuf], name: &str) -> Result<Value> {
     let mut layers: Vec<Value> = Vec::new();
 
@@ -88,6 +91,7 @@ pub fn resolve_config(chain: &[PathBuf], name: &str) -> Result<Value> {
 ///
 /// Merge order: `base.yaml` -> `{DC_ENV}.yaml` -> `local.yaml` -> `secrets.yaml`.
 /// Missing layers are skipped. The result is written to the `.active` file.
+// ⟦𓇊𓂼𓏒𓄧⟧ resolve_active :: Resolve a single store's layers for a named config.
 pub fn resolve_active(store_path: &Path, name: &str) -> Result<Value> {
     let env_name = std::env::var("DC_ENV").unwrap_or_else(|_| "dev".into());
 

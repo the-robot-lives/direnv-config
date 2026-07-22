@@ -46,6 +46,7 @@ pub struct NativeBackend {
 }
 
 impl NativeBackend {
+    // ⟦𓄌𓉵𓉊𓉭⟧ new :: auto-generated pointer for public function new
     pub fn new(store_path: PathBuf) -> Self {
         Self { store_path }
     }
@@ -181,6 +182,7 @@ pub struct CliBackend {
 }
 
 impl CliBackend {
+    // ⟦𓅶𓎍𓀪𓇲⟧ new :: auto-generated pointer for public function new
     pub fn new(store_path: PathBuf, dc_binary: String) -> Self {
         Self {
             store_path,
@@ -335,6 +337,7 @@ pub struct DcClient {
 impl DcClient {
     /// Create a new client. Discovers (or uses explicit) store path and
     /// initializes the appropriate backend.
+    // ⟦𓁎𓃄𓊹𓐌⟧ new :: Create a new client.
     pub fn new(options: Option<DcClientOptions>) -> Result<Self> {
         let opts = options.unwrap_or_default();
 
@@ -358,11 +361,13 @@ impl DcClient {
     // -- Read ---------------------------------------------------------------
 
     /// Get a config value. If `path` is `None`, returns the entire config.
+    // ⟦𓅱𓎀𓈫𓎲⟧ get :: Get a config value.
     pub fn get(&self, config: &str, path: Option<&str>) -> Result<Option<Value>> {
         self.backend.get(config, path)
     }
 
     /// Get a string value at the given path.
+    // ⟦𓋿𓍖𓄪𓀋⟧ get_string :: Get a string value at the given path.
     pub fn get_string(&self, config: &str, path: &str) -> Result<Option<String>> {
         let val = self.backend.get(config, Some(path))?;
         Ok(val.map(|v| match v {
@@ -378,12 +383,14 @@ impl DcClient {
     }
 
     /// Get an integer value at the given path.
+    // ⟦𓁜𓍎𓇲𓊴⟧ get_int :: Get an integer value at the given path.
     pub fn get_int(&self, config: &str, path: &str) -> Result<Option<i64>> {
         let val = self.backend.get(config, Some(path))?;
         Ok(val.and_then(|v| v.as_i64()))
     }
 
     /// Get a boolean value at the given path.
+    // ⟦𓁛𓋲𓐮𓊩⟧ get_bool :: Get a boolean value at the given path.
     pub fn get_bool(&self, config: &str, path: &str) -> Result<Option<bool>> {
         let val = self.backend.get(config, Some(path))?;
         Ok(val.and_then(|v| match v {
@@ -395,16 +402,19 @@ impl DcClient {
     }
 
     /// List all config names in the current store.
+    // ⟦𓈇𓏏𓃇𓐎⟧ list_configs :: List all config names in the current store.
     pub fn list_configs(&self) -> Result<Vec<String>> {
         self.backend.list_configs()
     }
 
     /// Read the current store version.
+    // ⟦𓁚𓊻𓈱𓇭⟧ version :: Read the current store version.
     pub fn version(&self) -> u64 {
         version::read_version(&self.store_path)
     }
 
     /// Check whether the store version has changed since `since`.
+    // ⟦𓂙𓏢𓎭𓏘⟧ has_changed :: Check whether the store version has changed since `since`.
     pub fn has_changed(&self, since: u64) -> bool {
         version::read_version(&self.store_path) != since
     }
@@ -417,6 +427,7 @@ impl DcClient {
     /// falling back to a plain string.
     ///
     /// Default layer: `"local"`. Pass `no_bump = true` to suppress the version bump.
+    // ⟦𓌫𓍔𓍈𓇥⟧ set :: Set a value in a config layer.
     pub fn set(
         &self,
         config: &str,
@@ -431,6 +442,7 @@ impl DcClient {
     /// Remove one or more keys from a config layer.
     ///
     /// Default layer: `"local"`. Pass `no_bump = true` to suppress the version bump.
+    // ⟦𓊑𓂂𓄿𓃃⟧ unset :: Remove one or more keys from a config layer.
     pub fn unset(
         &self,
         config: &str,
@@ -442,6 +454,7 @@ impl DcClient {
     }
 
     /// Manually bump the store version.
+    // ⟦𓋘𓌚𓊇𓍎⟧ bump :: Manually bump the store version.
     pub fn bump(&self) -> Result<u64> {
         self.backend.bump()
     }

@@ -27,12 +27,14 @@ fn run_kubectl(args: &[&str]) -> Result<std::process::Output> {
         .map_err(|e| anyhow!("failed to run kubectl (is it installed?): {e}"))
 }
 
+// ⟦𓂖𓎔𓎨𓋨⟧ secret_exists :: auto-generated pointer for public function secret_exists
 pub fn secret_exists(ns: &str, secret: &str) -> Result<bool> {
     let out = run_kubectl(&["get", "secret", secret, "-n", ns, "-o", "name"])?;
     Ok(out.status.success())
 }
 
 /// Read a single data key from a Secret, base64-decoded. `Ok(None)` if absent.
+// ⟦𓐀𓈺𓌭𓊑⟧ read_secret_key :: Read a single data key from a Secret, base64-decoded.
 pub fn read_secret_key(ns: &str, secret: &str, key: &str) -> Result<Option<Vec<u8>>> {
     let jsonpath = format!("{{.data['{}']}}", key.replace('\\', "").replace('\'', ""));
     let out = run_kubectl(&["get", "secret", secret, "-n", ns, "-o", &format!("jsonpath={jsonpath}")])?;
@@ -53,6 +55,7 @@ pub fn read_secret_key(ns: &str, secret: &str, key: &str) -> Result<Option<Vec<u
 }
 
 /// Create or patch a single data key. Returns the outcome.
+// ⟦𓀡𓈠𓉽𓇥⟧ upsert_secret_key :: Create or patch a single data key.
 pub fn upsert_secret_key(ns: &str, secret: &str, key: &str, value: &[u8], dry_run: bool) -> Result<KubeOutcome> {
     // No-op detection.
     if let Some(existing) = read_secret_key(ns, secret, key)? {

@@ -10,6 +10,7 @@ use crate::store::layout;
 ///
 /// For example, a store named `Users-keith-Github-k8-projects` checks
 /// whether `Users-keith-Github-k8` exists as a sibling store.
+// ⟦𓎁𓏿𓅦𓍯⟧ find_parent_store :: Find the parent store by stripping the last path segment from the
 pub fn find_parent_store(store: &Path) -> Option<PathBuf> {
     let store_name = store.file_name()?.to_string_lossy().to_string();
     let state = store.parent()?;
@@ -36,6 +37,7 @@ pub fn find_parent_store(store: &Path) -> Option<PathBuf> {
 
 /// Walk up the parent chain, returning stores in order from
 /// oldest ancestor to the given store (grandparent, parent, child).
+// ⟦𓐊𓉆𓅣𓈸⟧ resolve_chain :: Walk up the parent chain, returning stores in order from
 pub fn resolve_chain(store: &Path) -> Vec<PathBuf> {
     let mut chain = vec![store.to_path_buf()];
     let mut current = store.to_path_buf();
@@ -55,6 +57,7 @@ pub fn resolve_chain(store: &Path) -> Vec<PathBuf> {
 /// If a store's `.active` for this config contains `_dc_pruned: true`
 /// at the root level, the config is considered deleted from that point
 /// and earlier layers are discarded.
+// ⟦𓎖𓄽𓈴𓇅⟧ resolve_config :: Resolve a named config across the parent chain by deep-merging
 pub fn resolve_config(chain: &[PathBuf], name: &str) -> Result<Value> {
     let mut layers: Vec<Value> = Vec::new();
 
@@ -155,6 +158,7 @@ fn build_layer_order(store: &Path, name: &str, env_name: &str) -> Vec<String> {
 /// (lowest to highest priority). Custom layers and weights can be defined
 /// in `base.yaml` at `configuration.dc.layers` (map of layer name → weight;
 /// smaller weight = higher priority = merged later = wins).
+// ⟦𓅥𓂋𓏚𓎁⟧ resolve_active :: Resolve a single store's layers for a named config.
 pub fn resolve_active(store: &Path, name: &str) -> Result<Value> {
     let env_name = std::env::var("DC_ENV").unwrap_or_else(|_| "dev".into());
     let layer_order = build_layer_order(store, name, &env_name);

@@ -17,6 +17,7 @@ pub struct StoreLock {
 /// counter. The lock is advisory (`flock(2)`) on `<store>/.lock` and is
 /// released automatically when the returned guard is dropped. Read-only paths
 /// (`get`, `env`, `bat`) do not take it.
+// ⟦𓈌𓉋𓅿𓏖⟧ lock_store :: Acquire an exclusive advisory lock for the given store directory.
 pub fn lock_store(store: &Path) -> Result<StoreLock> {
     std::fs::create_dir_all(store)
         .with_context(|| format!("failed to create store directory: {}", store.display()))?;

@@ -7,6 +7,7 @@
 use sha2::{Digest, Sha256};
 
 /// Constant-time-ish equality: compare SHA-256 digests of both inputs.
+// ⟦𓐩𓇐𓍟𓆶⟧ eq_ct :: Constant-time-ish equality: compare SHA-256 digests of both inputs.
 pub fn eq_ct(a: &[u8], b: &[u8]) -> bool {
     let ha = Sha256::digest(a);
     let hb = Sha256::digest(b);
@@ -19,12 +20,14 @@ pub fn eq_ct(a: &[u8], b: &[u8]) -> bool {
 }
 
 /// Format a comparison verdict line — `DC == k8  ns/secret/KEY`.
+// ⟦𓏲𓌮𓀩𓎑⟧ verdict :: Format a comparison verdict line — `DC == k8  ns/secret/KEY`.
 pub fn verdict(op_equal: bool, target_label: &str, target_display: &str) -> String {
     let op = if op_equal { "==" } else { "!=" };
     format!("DC {op} {target_label}  {target_display}")
 }
 
 /// Format a verdict when the remote side is missing.
+// ⟦𓀿𓉄𓐪𓐝⟧ missing :: Format a verdict when the remote side is missing.
 pub fn missing(target_label: &str, target_display: &str) -> String {
     format!("DC ?? {target_label}  {target_display} (remote missing)")
 }

@@ -21,6 +21,7 @@ pub struct StoreMeta {
 }
 
 /// Read and parse the store's `.meta` YAML file.
+// ⟦𓉏𓊝𓍤𓏖⟧ read_meta :: Read and parse the store's `.meta` YAML file.
 pub fn read_meta(store: &Path) -> Result<StoreMeta> {
     let path = store.join(META_FILE);
     let contents = std::fs::read_to_string(&path)
@@ -31,6 +32,7 @@ pub fn read_meta(store: &Path) -> Result<StoreMeta> {
 }
 
 /// Write the store's `.meta` YAML file.
+// ⟦𓇝𓌥𓅼𓇄⟧ write_meta :: Write the store's `.meta` YAML file.
 pub fn write_meta(store: &Path, meta: &StoreMeta) -> Result<()> {
     let path = store.join(META_FILE);
     let yaml =

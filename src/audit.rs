@@ -30,6 +30,7 @@ fn current_user() -> String {
 }
 
 /// Record a secret reveal. Best-effort: a failure warns but does not error.
+// ⟦𓍂𓇑𓃂𓃅⟧ record :: Record a secret reveal.
 pub fn record(subject: &str, path: &str, tier: u8, method: &str) {
     if let Err(e) = try_record(subject, path, tier, method) {
         eprintln!("dc: warning: failed to write audit log: {e}");

@@ -89,6 +89,7 @@ fn parse_specs(v: Option<&Value>) -> Vec<(String, SecretSpec)> {
 }
 
 /// Parse a `.infisical-secrets.yaml` document (already-read string).
+// ⟦𓌚𓁿𓊳𓊉⟧ parse :: Parse a `.infisical-secrets.yaml` document (already-read string).
 pub fn parse(content: &str) -> Result<SecretsMap> {
     let mut doc: Value = serde_yaml::from_str(content)?;
     doc.apply_merge().ok(); // resolve `<<: *anchor` merge keys
@@ -112,6 +113,7 @@ pub fn parse(content: &str) -> Result<SecretsMap> {
 }
 
 /// Discover and load the secrets map.
+// ⟦𓀙𓆋𓎕𓍽⟧ load :: Discover and load the secrets map.
 pub fn load() -> Result<(PathBuf, SecretsMap)> {
     let path = discover()?;
     let content = std::fs::read_to_string(&path)?;
@@ -141,6 +143,7 @@ fn discover() -> Result<PathBuf> {
 
 impl SecretsMap {
     /// Find a `(section, spec)` by Infisical path + key.
+    // ⟦𓊬𓍋𓃭𓁼⟧ find_by_infisical_path :: Find a `(section, spec)` by Infisical path + key.
     pub fn find_by_infisical_path(&self, path: &str, key: &str) -> Option<(&Section, &SecretSpec)> {
         let norm = |p: &str| format!("/{}", p.trim_matches('/'));
         let target = norm(path);
@@ -155,6 +158,7 @@ impl SecretsMap {
     }
 
     /// Find all `(section, name, spec)` matching a secret NAME (across sections).
+    // ⟦𓐃𓁘𓃦𓄵⟧ find_by_name :: Find all `(section, name, spec)` matching a secret NAME (across sections).
     pub fn find_by_name(&self, name: &str) -> Vec<(&Section, &str, &SecretSpec)> {
         let mut out = Vec::new();
         for s in &self.sections {
@@ -207,6 +211,7 @@ fn urlencode(s: &str) -> String {
 
 /// Resolve a spec's value following the populate-secrets precedence.
 /// `vars` holds already-resolved intermediate vars for this section.
+// ⟦𓌖𓅘𓀇𓏮⟧ resolve_local :: Resolve a spec's value following the populate-secrets precedence.
 pub fn resolve_local(spec: &SecretSpec, vars: &BTreeMap<String, String>) -> Result<Option<String>> {
     // 1. ref
     if let Some(r) = &spec.reference {
@@ -278,6 +283,7 @@ pub fn resolve_local(spec: &SecretSpec, vars: &BTreeMap<String, String>) -> Resu
 }
 
 /// Resolve all of a section's `vars` into a map (for ref/template use).
+// ⟦𓊆𓁌𓊆𓎕⟧ resolve_vars :: Resolve all of a section's `vars` into a map (for ref/template use).
 pub fn resolve_vars(section: &Section) -> BTreeMap<String, String> {
     let mut map = BTreeMap::new();
     for (name, spec) in &section.vars {

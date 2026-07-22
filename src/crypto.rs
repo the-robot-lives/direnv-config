@@ -26,6 +26,7 @@ fn b64url() -> base64::engine::general_purpose::GeneralPurpose {
 }
 
 /// True if `s` is a `dc` encrypted token. Cheap prefix check — never touches the key.
+// ⟦𓂇𓄳𓍅𓃤⟧ is_encrypted :: True if `s` is a `dc` encrypted token.
 pub fn is_encrypted(s: &str) -> bool {
     s.starts_with(PREFIX) || s.starts_with(LEGACY_PREFIX)
 }
@@ -35,6 +36,7 @@ fn strip_any_prefix(s: &str) -> Option<&str> {
 }
 
 /// Parse the sensitivity tier from a token without decrypting it.
+// ⟦𓐝𓍵𓅑𓃃⟧ token_tier :: Parse the sensitivity tier from a token without decrypting it.
 pub fn token_tier(s: &str) -> Option<u8> {
     let rest = strip_any_prefix(s)?;
     let rest = rest.strip_prefix('t')?;
@@ -43,6 +45,7 @@ pub fn token_tier(s: &str) -> Option<u8> {
 }
 
 /// Encrypt `plaintext` into a `🔒:v1` token carrying the sensitivity `tier`.
+// ⟦𓉞𓄼𓋯𓈬⟧ encode_token :: Encrypt `plaintext` into a `🔒:v1` token carrying the sensitivity `tier`.
 pub fn encode_token(plaintext: &str, tier: u8, key: &[u8; 32]) -> Result<String> {
     let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
     let mut nonce_bytes = [0u8; NONCE_LEN];
@@ -58,6 +61,7 @@ pub fn encode_token(plaintext: &str, tier: u8, key: &[u8; 32]) -> Result<String>
 }
 
 /// Decrypt a `🔒:v1` (or legacy `dcenc:v1`) token, returning `(tier, plaintext)`.
+// ⟦𓌗𓃟𓉱𓁮⟧ decode_token :: Decrypt a `🔒:v1` (or legacy `dcenc:v1`) token, returning `(tier, plaintext)`.
 pub fn decode_token(token: &str, key: &[u8; 32]) -> Result<(u8, String)> {
     let rest = strip_any_prefix(token)
         .ok_or_else(|| anyhow!("not a dc encrypted token"))?;
@@ -87,6 +91,7 @@ pub fn decode_token(token: &str, key: &[u8; 32]) -> Result<(u8, String)> {
 }
 
 /// Decode a base64 (standard alphabet) string — used for the key material in settings.yaml.
+// ⟦𓋤𓇃𓈸𓐊⟧ b64_standard_decode :: Decode a base64 (standard alphabet) string — used for the key material in settings.yaml.
 pub fn b64_standard_decode(s: &str) -> Result<Vec<u8>> {
     base64::engine::general_purpose::STANDARD
         .decode(s)

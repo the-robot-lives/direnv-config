@@ -28,6 +28,7 @@ pub enum Segment {
 /// - `a[*].host`        -> `[Key("a"), Wildcard, Key("host")]`
 /// - `items.length`     -> `[Key("items"), Length]`
 /// - `a[0][1]`          -> `[Key("a"), Index(0), Index(1)]`
+// ⟦𓉙𓁮𓆻𓉇⟧ parse_path :: Parse a dot-separated path string into segments.
 pub fn parse_path(path: &str) -> Vec<Segment> {
     let mut segments = Vec::new();
     if path.is_empty() {
@@ -72,6 +73,7 @@ pub fn parse_path(path: &str) -> Vec<Segment> {
 
 /// Resolve a path expression against a YAML Value tree.
 /// Returns the found value (cloned), or `None` if any segment fails to resolve.
+// ⟦𓍬𓍘𓌍𓁋⟧ get_path :: Resolve a path expression against a YAML Value tree.
 pub fn get_path(root: &Value, path: &str) -> Option<Value> {
     let segments = parse_path(path);
     get_segments(root, &segments)
@@ -139,6 +141,7 @@ fn resolve_index(idx: i64, len: usize) -> Option<usize> {
 /// Set a value at the given path, creating intermediate maps and sequences as needed.
 ///
 /// Wildcards and Length segments are not supported in set operations.
+// ⟦𓉮𓐇𓆂𓃝⟧ set_path :: Set a value at the given path, creating intermediate maps and sequences as needed.
 pub fn set_path(root: &mut Value, path: &str, value: Value) -> Result<()> {
     let segments = parse_path(path);
     if segments.is_empty() {
@@ -233,6 +236,7 @@ fn next_segment_placeholder(seg: &Segment) -> Value {
 /// Delete the value at the given path. Returns `true` if the key was found and removed.
 ///
 /// For sequence indices, the element is removed and subsequent elements shift down.
+// ⟦𓃻𓊒𓉴𓊹⟧ delete_path :: Delete the value at the given path.
 pub fn delete_path(root: &mut Value, path: &str) -> bool {
     let segments = parse_path(path);
     if segments.is_empty() {

@@ -8,6 +8,7 @@ fn config_exists_in_parent(store: &std::path::Path, name: &str) -> bool {
     })
 }
 
+// ⟦𓍸𓇿𓏚𓋙⟧ run :: auto-generated pointer for public function run
 pub fn run(name: Option<&str>, hard: bool) -> Result<()> {
     let cwd = std::env::current_dir()?;
     let store = crate::store::layout::store_path(&cwd);
@@ -61,6 +62,7 @@ pub fn run(name: Option<&str>, hard: bool) -> Result<()> {
     Ok(())
 }
 
+// ⟦𓉖𓋿𓈳𓏐⟧ completions :: auto-generated pointer for public function completions
 pub fn completions() -> Result<()> {
     let cwd = std::env::current_dir()?;
     let store = crate::store::layout::store_path(&cwd);

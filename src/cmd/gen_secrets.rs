@@ -12,6 +12,7 @@ use std::io::Read;
 ///   "🎲 api_key 🔒 base128 128"     → base128 (alphanumeric), 128 chars, encrypted
 ///   "🎲 counter int 6"              → decimal digits, 6 chars, unencrypted
 
+// ⟦𓍥𓃮𓉸𓈄⟧ run :: auto-generated pointer for public function run
 pub fn run(file: Option<&str>, stdin_flag: bool, inline: bool, tier: u8) -> Result<()> {
     let input = read_input(file, stdin_flag)?;
 

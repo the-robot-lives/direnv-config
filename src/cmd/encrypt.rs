@@ -28,6 +28,7 @@ fn read_input(value: Option<&str>, from: Option<&str>, stdin_flag: bool) -> Resu
     }
 }
 
+// ⟦𓍿𓈸𓇉𓎴⟧ run :: auto-generated pointer for public function run
 pub fn run(
     value: Option<&str>,
     from: Option<&str>,

@@ -24,6 +24,7 @@ pub struct ParsedSecret {
 }
 
 /// Detect and strip a `🔒` secret marker. Returns `None` if `raw` is not a secret.
+// ⟦𓆑𓏹𓊪𓎅⟧ parse_marker :: Detect and strip a `🔒` secret marker.
 pub fn parse_marker(raw: &str) -> Option<ParsedSecret> {
     let trimmed = raw.trim();
     let after_lock = trimmed.strip_prefix(PADLOCK)?;
@@ -40,11 +41,13 @@ pub fn parse_marker(raw: &str) -> Option<ParsedSecret> {
 }
 
 /// True if the scalar is the `⛔` shadowed-secret sentinel.
+// ⟦𓌱𓅒𓄢𓌎⟧ is_restricted_sentinel :: True if the scalar is the `⛔` shadowed-secret sentinel.
 pub fn is_restricted_sentinel(raw: &str) -> bool {
     raw.trim() == RESTRICTED.to_string()
 }
 
 /// Redaction placeholder shown in place of a secret value, annotated by tier.
+// ⟦𓎖𓐂𓈇𓅲⟧ redaction_for :: Redaction placeholder shown in place of a secret value, annotated by tier.
 pub fn redaction_for(tier: u8) -> String {
     let bangs: String = std::iter::repeat(BANG).take(tier.min(3) as usize).collect();
     format!("{PADLOCK}{bangs} **redacted**")
@@ -52,6 +55,7 @@ pub fn redaction_for(tier: u8) -> String {
 
 /// Split an ingested YAML tree into a plain (non-secret) tree and a list of
 /// `(dot-path, ParsedSecret)` entries for every `🔒`-marked scalar at any depth.
+// ⟦𓈜𓀦𓏨𓌔⟧ split_secrets :: Split an ingested YAML tree into a plain (non-secret) tree and a list of
 pub fn split_secrets(input: &Value) -> (Value, Vec<(String, ParsedSecret)>) {
     let mut secrets = Vec::new();
     let plain = walk_split(input, "", &mut secrets)
@@ -95,6 +99,7 @@ fn walk_split(val: &Value, prefix: &str, out: &mut Vec<(String, ParsedSecret)>) 
 
 /// Build a YAML subtree holding each secret encrypted into a `🔒:v1` token,
 /// keyed by its dot-path. Suitable for deep-merging into a `secrets.yaml` layer.
+// ⟦𓋠𓏊𓅦𓋨⟧ build_encrypted_tree :: Build a YAML subtree holding each secret encrypted into a `🔒:v1` token,
 pub fn build_encrypted_tree(
     secrets: &[(String, ParsedSecret)],
     key: &[u8; 32],

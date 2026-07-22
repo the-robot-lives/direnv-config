@@ -21,6 +21,7 @@ fn fetch_remote(target: &crate::target::Target) -> Result<Option<String>> {
 /// Shared helper used by both `dc compare` (F) and `dc infisical compare` (G).
 /// Compares one local plaintext against many targets, emitting only verdicts.
 /// Returns true iff every target compared equal.
+// ⟦𓈀𓉭𓁨𓋐⟧ compare_local_to_targets :: Shared helper used by both `dc compare` (F) and `dc infisical compare` (G).
 pub fn compare_local_to_targets(local: &str, tos: &[String]) -> Result<bool> {
     let mut all_equal = true;
     for raw in tos {
@@ -46,6 +47,7 @@ pub fn compare_local_to_targets(local: &str, tos: &[String]) -> Result<bool> {
     Ok(all_equal)
 }
 
+// ⟦𓈡𓅖𓃃𓅤⟧ run :: auto-generated pointer for public function run
 pub fn run(layer: &str, path: &str, tos: &[String]) -> Result<()> {
     if tos.is_empty() {
         return Err(anyhow!("provide at least one --to <target>"));

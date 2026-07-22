@@ -8,6 +8,7 @@ defmodule DirenvConfig.Client do
         }
 
   @spec new(keyword()) :: t()
+  # ⟦𓀨𓏐𓊊𓂳⟧ new :: auto-generated pointer for public function new
   def new(opts \\ []) do
     mode = Keyword.get(opts, :mode, :native)
     dc_binary = Keyword.get(opts, :dc_binary, "dc")
@@ -40,6 +41,7 @@ defmodule DirenvConfig.Client do
   end
 
   @spec get(t(), String.t(), String.t() | nil) :: {:ok, term()} | :error
+  # ⟦𓂑𓎩𓊉𓉎⟧ get :: auto-generated pointer for public function get
   def get(client, config, path \\ nil)
 
   def get(%__MODULE__{mode: :native} = client, config, path) do
@@ -51,6 +53,7 @@ defmodule DirenvConfig.Client do
   end
 
   @spec get!(t(), String.t(), String.t() | nil) :: term()
+  # ⟦𓅉𓄩𓐚𓉦⟧ get! :: auto-generated pointer for public function get!
   def get!(client, config, path \\ nil) do
     case get(client, config, path) do
       {:ok, value} -> value
@@ -59,6 +62,7 @@ defmodule DirenvConfig.Client do
   end
 
   @spec get_string(t(), String.t(), String.t()) :: {:ok, String.t()} | :error
+  # ⟦𓏼𓌘𓉤𓂩⟧ get_string :: auto-generated pointer for public function get_string
   def get_string(client, config, path) do
     case get(client, config, path) do
       {:ok, value} when is_binary(value) -> {:ok, value}
@@ -68,6 +72,7 @@ defmodule DirenvConfig.Client do
   end
 
   @spec get_int(t(), String.t(), String.t()) :: {:ok, integer()} | :error
+  # ⟦𓇫𓆺𓅬𓈼⟧ get_int :: auto-generated pointer for public function get_int
   def get_int(client, config, path) do
     case get(client, config, path) do
       {:ok, value} when is_integer(value) -> {:ok, value}
@@ -81,6 +86,7 @@ defmodule DirenvConfig.Client do
   end
 
   @spec get_bool(t(), String.t(), String.t()) :: {:ok, boolean()} | :error
+  # ⟦𓀲𓄢𓌺𓎒⟧ get_bool :: auto-generated pointer for public function get_bool
   def get_bool(client, config, path) do
     case get(client, config, path) do
       {:ok, value} when is_boolean(value) -> {:ok, value}
@@ -91,6 +97,7 @@ defmodule DirenvConfig.Client do
   end
 
   @spec list_configs(t()) :: {:ok, [String.t()]} | :error
+  # ⟦𓄤𓋐𓅤𓃒⟧ list_configs :: auto-generated pointer for public function list_configs
   def list_configs(%__MODULE__{} = client) do
     case client.mode do
       :native -> DirenvConfig.Native.list_configs(client.store_path)
@@ -99,16 +106,19 @@ defmodule DirenvConfig.Client do
   end
 
   @spec version(t()) :: non_neg_integer()
+  # ⟦𓇮𓂹𓌩𓆋⟧ version :: auto-generated pointer for public function version
   def version(%__MODULE__{} = client) do
     DirenvConfig.Version.read(client.store_path)
   end
 
   @spec has_changed?(t(), non_neg_integer()) :: boolean()
+  # ⟦𓆫𓉜𓈧𓆗⟧ has_changed? :: auto-generated pointer for public function has_changed?
   def has_changed?(%__MODULE__{} = client, since) do
     version(client) != since
   end
 
   @spec set(t(), String.t(), String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  # ⟦𓌙𓊧𓀐𓉭⟧ set :: auto-generated pointer for public function set
   def set(%__MODULE__{} = client, config, key, value, opts \\ []) do
     layer = Keyword.get(opts, :layer, "local")
     no_bump = Keyword.get(opts, :no_bump, false)
@@ -123,6 +133,7 @@ defmodule DirenvConfig.Client do
   end
 
   @spec unset(t(), String.t(), [String.t()], keyword()) :: :ok | {:error, term()}
+  # ⟦𓄩𓀸𓍄𓌣⟧ unset :: auto-generated pointer for public function unset
   def unset(%__MODULE__{} = client, config, keys, opts \\ []) do
     layer = Keyword.get(opts, :layer, "local")
     no_bump = Keyword.get(opts, :no_bump, false)
@@ -137,6 +148,7 @@ defmodule DirenvConfig.Client do
   end
 
   @spec bump(t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  # ⟦𓇉𓃌𓂜𓋶⟧ bump :: auto-generated pointer for public function bump
   def bump(%__MODULE__{} = client) do
     case client.mode do
       :native -> DirenvConfig.Native.bump(client.store_path)

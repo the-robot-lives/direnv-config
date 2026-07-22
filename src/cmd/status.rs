@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+// ⟦𓄮𓏃𓈳𓆫⟧ run :: auto-generated pointer for public function run
 pub fn run() -> Result<()> {
     let store = crate::store::find_current_store()?;
     let meta = crate::store::meta::read_meta(&store)?;

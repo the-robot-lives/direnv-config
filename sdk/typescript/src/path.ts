@@ -4,6 +4,7 @@ type Segment =
   | { type: 'wildcard' }
   | { type: 'length' };
 
+// ⟦𓆀𓊤𓈜𓆈⟧ parsePath :: auto-generated pointer for public function parsePath
 export function parsePath(path: string): Segment[] {
   const segments: Segment[] = [];
   if (!path) return segments;
@@ -82,6 +83,7 @@ function getSegments(current: unknown, segments: Segment[]): unknown {
   }
 }
 
+// ⟦𓈫𓇾𓎳𓍍⟧ getPath :: auto-generated pointer for public function getPath
 export function getPath(root: unknown, path: string): unknown {
   const segments = parsePath(path);
   return getSegments(root, segments);
@@ -91,6 +93,7 @@ function isMap(val: unknown): val is Record<string, unknown> {
   return val !== null && typeof val === 'object' && !Array.isArray(val);
 }
 
+// ⟦𓂵𓍂𓊎𓎪⟧ setPath :: auto-generated pointer for public function setPath
 export function setPath(root: unknown, path: string, value: unknown): unknown {
   const segments = parsePath(path);
   if (segments.length === 0) return value;
@@ -165,6 +168,7 @@ export function setPath(root: unknown, path: string, value: unknown): unknown {
   return root;
 }
 
+// ⟦𓉜𓊜𓈶𓁊⟧ deletePath :: auto-generated pointer for public function deletePath
 export function deletePath(root: unknown, path: string): boolean {
   const segments = parsePath(path);
   if (segments.length === 0) return false;

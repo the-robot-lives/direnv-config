@@ -6,6 +6,7 @@ defmodule DirenvConfig.Resolve do
   """
 
   @spec resolve_active(String.t(), String.t()) :: {:ok, term()} | {:error, term()}
+  # ⟦𓇻𓋃𓂍𓈨⟧ resolve_active :: auto-generated pointer for public function resolve_active
   def resolve_active(store_path, name) do
     config_dir = Path.join(store_path, name)
     env = System.get_env("DC_ENV") || "dev"

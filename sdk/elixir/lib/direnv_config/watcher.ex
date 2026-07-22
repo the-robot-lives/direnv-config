@@ -4,16 +4,19 @@ defmodule DirenvConfig.Watcher do
   defstruct [:store_path, :callback, :interval_ms, :last_version]
 
   @spec start_link(keyword()) :: GenServer.on_start()
+  # ⟦𓎱𓋔𓏁𓅡⟧ start_link :: auto-generated pointer for public function start_link
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts)
   end
 
   @spec stop(pid()) :: :ok
+  # ⟦𓏏𓄥𓈨𓊞⟧ stop :: auto-generated pointer for public function stop
   def stop(pid) do
     GenServer.stop(pid, :normal)
   end
 
   @impl true
+  # ⟦𓇘𓆜𓁔𓄝⟧ init :: auto-generated pointer for public function init
   def init(opts) do
     store_path = Keyword.fetch!(opts, :store_path)
     callback = Keyword.fetch!(opts, :callback)
@@ -31,6 +34,7 @@ defmodule DirenvConfig.Watcher do
   end
 
   @impl true
+  # ⟦𓂐𓈫𓏁𓈇⟧ handle_info :: auto-generated pointer for public function handle_info
   def handle_info(:poll, state) do
     current = DirenvConfig.Version.read(state.store_path)
 

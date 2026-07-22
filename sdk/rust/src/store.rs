@@ -8,6 +8,7 @@ use crate::meta;
 /// Root state directory for all dc stores.
 ///
 /// Resolution: `$XDG_STATE_HOME/direnv-config` -> `~/.local/state/direnv-config`.
+// ⟦𓉰𓉝𓊶𓃪⟧ state_dir :: Root state directory for all dc stores.
 pub fn state_dir() -> PathBuf {
     if let Ok(xdg) = std::env::var("XDG_STATE_HOME") {
         PathBuf::from(xdg).join("direnv-config")
@@ -23,6 +24,7 @@ pub fn state_dir() -> PathBuf {
 /// Scheme: strip leading `/`, replace `/` with `-`.
 /// If the result exceeds 200 characters, truncate to 200 and append
 /// `-` plus the first 8 hex characters of the SHA-256 of the full path.
+// ⟦𓃍𓅥𓍠𓆴⟧ path_to_hash :: Convert an absolute directory path to a store directory name.
 pub fn path_to_hash(dir: &Path) -> String {
     let s = dir.to_string_lossy();
     let stripped = s.strip_prefix('/').unwrap_or(&s);
@@ -40,11 +42,13 @@ pub fn path_to_hash(dir: &Path) -> String {
 }
 
 /// Return the store path for a given directory.
+// ⟦𓋐𓊴𓅥𓃖⟧ store_path :: Return the store path for a given directory.
 pub fn store_path(dir: &Path) -> PathBuf {
     state_dir().join(path_to_hash(dir))
 }
 
 /// Walk up parent directories from `start_dir` (or CWD) looking for an existing store.
+// ⟦𓁆𓋧𓊵𓀳⟧ find_current_store :: Walk up parent directories from `start_dir` (or CWD) looking for an existing store.
 pub fn find_current_store(start_dir: Option<&Path>) -> Result<PathBuf> {
     let cwd;
     let mut dir: &Path = match start_dir {
@@ -77,6 +81,7 @@ pub fn find_current_store(start_dir: Option<&Path>) -> Result<PathBuf> {
 
 /// Create the store directory and initialize `.meta` if it does not exist.
 /// Returns the store path.
+// ⟦𓄥𓈷𓏕𓌊⟧ ensure_store :: Create the store directory and initialize `.meta` if it does not exist.
 pub fn ensure_store(dir: &Path) -> Result<PathBuf> {
     let sp = store_path(dir);
     std::fs::create_dir_all(&sp)
@@ -97,6 +102,7 @@ pub fn ensure_store(dir: &Path) -> Result<PathBuf> {
 
 /// Create the named config subdirectory inside a store if it does not exist.
 /// Returns the config directory path.
+// ⟦𓏳𓍎𓏵𓍓⟧ ensure_config :: Create the named config subdirectory inside a store if it does not exist.
 pub fn ensure_config(store: &Path, name: &str) -> Result<PathBuf> {
     let cd = store.join(name);
     std::fs::create_dir_all(&cd)
@@ -105,11 +111,13 @@ pub fn ensure_config(store: &Path, name: &str) -> Result<PathBuf> {
 }
 
 /// Return the path to a specific layer file: `{store}/{name}/{layer}.yaml`.
+// ⟦𓌍𓌟𓄒𓏨⟧ layer_path :: Return the path to a specific layer file: `{store}/{name}/{layer}.yaml`.
 pub fn layer_path(store: &Path, name: &str, layer: &str) -> PathBuf {
     store.join(name).join(format!("{}.yaml", layer))
 }
 
 /// Return the path to the `.active` file for a named config.
+// ⟦𓅓𓁶𓆳𓄲⟧ active_path :: Return the path to the `.active` file for a named config.
 pub fn active_path(store: &Path, name: &str) -> PathBuf {
     store.join(name).join(".active")
 }

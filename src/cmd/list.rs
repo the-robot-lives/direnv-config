@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+// ⟦𓇑𓇏𓃿𓄝⟧ run :: auto-generated pointer for public function run
 pub fn run() -> Result<()> {
     let sd = crate::store::layout::state_dir();
     if !sd.exists() {

@@ -4,6 +4,7 @@ defmodule DirenvConfig.Merge do
   """
 
   @spec deep_merge(term(), term()) :: term()
+  # ⟦𓁗𓏊𓃎𓀾⟧ deep_merge :: auto-generated pointer for public function deep_merge
   def deep_merge(base, overlay) when is_map(base) and is_map(overlay) do
     Map.merge(base, overlay, fn _key, base_val, overlay_val ->
       deep_merge(base_val, overlay_val)
@@ -13,6 +14,7 @@ defmodule DirenvConfig.Merge do
   def deep_merge(_base, overlay), do: overlay
 
   @spec deep_merge_multi([term()]) :: term() | nil
+  # ⟦𓈻𓆯𓉶𓀭⟧ deep_merge_multi :: auto-generated pointer for public function deep_merge_multi
   def deep_merge_multi([]), do: nil
 
   def deep_merge_multi([single]) do
@@ -26,6 +28,7 @@ defmodule DirenvConfig.Merge do
   end
 
   @spec strip_tombstones(term()) :: term()
+  # ⟦𓀓𓋍𓋽𓊨⟧ strip_tombstones :: auto-generated pointer for public function strip_tombstones
   def strip_tombstones(%{"_dc_pruned" => true}), do: nil
 
   def strip_tombstones(val) when is_map(val) do

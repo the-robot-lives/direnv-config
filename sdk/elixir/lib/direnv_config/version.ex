@@ -1,5 +1,6 @@
 defmodule DirenvConfig.Version do
   @spec read(String.t()) :: non_neg_integer()
+  # ⟦𓀸𓁘𓊕𓊊⟧ read :: auto-generated pointer for public function read
   def read(store_path) do
     path = Path.join(store_path, ".version")
 
@@ -16,6 +17,7 @@ defmodule DirenvConfig.Version do
   end
 
   @spec bump(String.t()) :: {:ok, non_neg_integer()}
+  # ⟦𓍾𓍨𓄂𓍑⟧ bump :: auto-generated pointer for public function bump
   def bump(store_path) do
     current = read(store_path)
     new_version = current + 1

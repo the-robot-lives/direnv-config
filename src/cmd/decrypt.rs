@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use std::io::Read;
 
+// ⟦𓃤𓎈𓎏𓋢⟧ run :: auto-generated pointer for public function run
 pub fn run(token: Option<&str>) -> Result<()> {
     let token = match token {
         Some(t) => t.to_string(),
