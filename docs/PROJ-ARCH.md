@@ -78,6 +78,8 @@ graph TB
 | `sdk/` | Client libraries in 5 languages with native and CLI backends; `contract-tests/` shared fixtures |
 | `demo/` | Simulated project/k8 `.envrc` trees with expected resolved-state fixtures for testing |
 
+→ *Components ↔ directories: see [PROJ-LAYOUT.md](PROJ-LAYOUT.md) (detailed breakdowns in [layout/](layout/))*
+
 ## Layer Resolution
 
 Configs within a single store resolve by deep-merging YAML layers in fixed order: `base.yaml` -> `{DC_ENV}.yaml` -> `local.yaml` -> `secrets.yaml`. The merged result is written to `.active`.
