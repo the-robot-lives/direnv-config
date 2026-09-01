@@ -15,6 +15,7 @@ fn split_path_key(infisical_path: &str) -> Result<(String, String)> {
 
 /// `dc infisical compare <infisical-path> --to …` — resolve the local value via
 /// the `.infisical-secrets.yaml` mapping, then compare to the targets.
+// ⟦𓈡𓂡𓁵𓀖⟧ compare :: `dc infisical compare <infisical-path> --to …` — resolve the local value via
 pub fn compare(infisical_path: &str, tos: &[String]) -> Result<()> {
     if tos.is_empty() {
         return Err(anyhow!("provide at least one --to <target>"));
@@ -58,6 +59,7 @@ fn fetch_live(path: &str, key: &str) -> Option<String> {
 
 /// `dc infisical get "<NAME>"` — fetch the live Infisical value, locate the
 /// secrets-map mapping + dc source, and present both (redacted unless --reveal).
+// ⟦𓌶𓃾𓇦𓆑⟧ get :: `dc infisical get "<NAME>"` — fetch the live Infisical value, locate the
 pub fn get(name: &str, reveal: bool) -> Result<()> {
     let (_file, map) = crate::secretsmap::load()?;
     let hits = map.find_by_name(name);
@@ -112,6 +114,7 @@ pub fn get(name: &str, reveal: bool) -> Result<()> {
 
 /// `dc infisical set "<NAME>" …` — locate where the dc secret is set and edit it
 /// in place (reuses the `dc config set` machinery).
+// ⟦𓐄𓉣𓆬𓆫⟧ set :: `dc infisical set "<NAME>" …` — locate where the dc secret is set and edit it
 pub fn set(
     name: &str,
     value: Option<&str>,

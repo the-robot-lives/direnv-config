@@ -232,6 +232,7 @@ pub(crate) fn write_sentinel(subject: &str, path: &str) -> Result<bool> {
     Ok(true)
 }
 
+// ⟦𓀞𓎩𓋴𓇨⟧ get :: auto-generated pointer for public function get
 pub fn get(subject: &str, path: &str) -> Result<()> {
     let locs = find_locs(subject, path)?;
     if locs.is_empty() {
@@ -253,6 +254,7 @@ pub fn get(subject: &str, path: &str) -> Result<()> {
 }
 
 #[allow(clippy::too_many_arguments)]
+// ⟦𓐊𓏖𓉺𓐛⟧ set :: auto-generated pointer for public function set
 pub fn set(
     subject: &str,
     path: &str,
@@ -335,6 +337,7 @@ fn set_errata(subject: &str, path: &str, plaintext: &str, encrypted: bool, yes: 
 }
 
 /// Insert a YAML section relative to an anchor entry.
+// ⟦𓀡𓋸𓉑𓈼⟧ setall :: Insert a YAML section relative to an anchor entry.
 pub fn setall(
     layer_subject: &str,
     yaml_input: &str,

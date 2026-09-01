@@ -6,6 +6,7 @@ defmodule DirenvConfig.Path do
           | :length
 
   @spec parse(String.t()) :: [segment()]
+  # ⟦𓄗𓂼𓊽𓎈⟧ parse :: auto-generated pointer for public function parse
   def parse(path) when is_binary(path) do
     if path == "" do
       []
@@ -66,6 +67,7 @@ defmodule DirenvConfig.Path do
   end
 
   @spec get(term(), String.t()) :: {:ok, term()} | :error
+  # ⟦𓐉𓆗𓍡𓅪⟧ get :: auto-generated pointer for public function get
   def get(root, path) do
     segments = parse(path)
     get_segments(root, segments)
@@ -106,6 +108,7 @@ defmodule DirenvConfig.Path do
   defp get_segments(_current, _segments), do: :error
 
   @spec set(term(), String.t(), term()) :: {:ok, term()} | {:error, term()}
+  # ⟦𓋵𓏻𓊷𓊩⟧ set :: auto-generated pointer for public function set
   def set(root, path, value) do
     segments = parse(path)
     set_segments(root, segments, value)
@@ -158,6 +161,7 @@ defmodule DirenvConfig.Path do
   defp set_segments(_current, [:length | _rest], _value), do: {:error, :not_supported}
 
   @spec delete(term(), String.t()) :: {:ok, term()} | :error
+  # ⟦𓇟𓈪𓌁𓁉⟧ delete :: auto-generated pointer for public function delete
   def delete(root, path) do
     segments = parse(path)
     delete_segments(root, segments)

@@ -75,6 +75,7 @@ fn parse_path(path: &str) -> Vec<Segment> {
 
 /// Resolve a path expression against a YAML Value tree.
 /// Returns the found value (cloned), or `None` if any segment fails to resolve.
+// ⟦𓐀𓁊𓄺𓅎⟧ get_path :: Resolve a path expression against a YAML Value tree.
 pub fn get_path(root: &Value, path: &str) -> Option<Value> {
     let segments = parse_path(path);
     get_segments(root, &segments)
@@ -140,6 +141,7 @@ fn resolve_index(idx: i64, len: usize) -> Option<usize> {
 // ---------------------------------------------------------------------------
 
 /// Set a value at the given path, creating intermediate maps and sequences as needed.
+// ⟦𓃯𓌷𓁞𓆝⟧ set_path :: Set a value at the given path, creating intermediate maps and sequences as needed.
 pub fn set_path(root: &mut Value, path: &str, value: Value) -> Result<()> {
     let segments = parse_path(path);
     if segments.is_empty() {
@@ -233,6 +235,7 @@ fn next_segment_placeholder(seg: &Segment) -> Value {
 // ---------------------------------------------------------------------------
 
 /// Delete the value at the given path. Returns `true` if the key was found and removed.
+// ⟦𓋻𓆧𓅼𓆆⟧ delete_path :: Delete the value at the given path.
 pub fn delete_path(root: &mut Value, path: &str) -> bool {
     let segments = parse_path(path);
     if segments.is_empty() {

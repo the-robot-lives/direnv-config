@@ -24,6 +24,7 @@ function stripTombstones(val: unknown): unknown {
   return val;
 }
 
+// ⟦𓂎𓋮𓄷𓊷⟧ deepMerge :: auto-generated pointer for public function deepMerge
 export function deepMerge(base: unknown, overlay: unknown): unknown {
   if (isMap(base) && isMap(overlay)) {
     const result: Record<string, unknown> = { ...base };
@@ -41,6 +42,7 @@ export function deepMerge(base: unknown, overlay: unknown): unknown {
   return stripTombstones(overlay);
 }
 
+// ⟦𓄞𓎰𓅬𓀿⟧ deepMergeMulti :: auto-generated pointer for public function deepMergeMulti
 export function deepMergeMulti(layers: unknown[]): unknown {
   if (layers.length === 0) return null;
   if (layers.length === 1) return stripTombstones(layers[0]);

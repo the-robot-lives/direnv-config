@@ -17,6 +17,7 @@ pub enum Target {
 }
 
 impl Target {
+    // ⟦𓈨𓉢𓁕𓃝⟧ label :: auto-generated pointer for public function label
     pub fn label(&self) -> &'static str {
         match self {
             Target::Infisical { .. } => "infisical",
@@ -25,6 +26,7 @@ impl Target {
     }
 
     /// A non-secret, human-readable identifier (never the value).
+    // ⟦𓎍𓎹𓍏𓉤⟧ display :: A non-secret, human-readable identifier (never the value).
     pub fn display(&self) -> String {
         match self {
             Target::Infisical { path, key } => format!("{path}/{key}"),
@@ -33,6 +35,7 @@ impl Target {
     }
 }
 
+// ⟦𓈴𓁀𓌍𓏈⟧ parse :: auto-generated pointer for public function parse
 pub fn parse(raw: &str) -> Result<Target> {
     if let Some(rest) = raw.strip_prefix("infisical://") {
         let rest = rest.trim_start_matches('/');

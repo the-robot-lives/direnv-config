@@ -1,6 +1,6 @@
 # SDK Layout
 
-Read-only client libraries for `dc` stores. Each SDK shares the same API surface and validates against shared contract tests.
+Client libraries for `dc` stores (read-only, except the Rust SDK which also writes). Each SDK shares the same API surface and validates against shared contract tests.
 
 ```
 sdk/
@@ -45,7 +45,7 @@ sdk/
 │   ├── composer.json               #   Package manifest
 │   ├── phpunit.xml
 │   └── .tool-versions              #   asdf versions (php)
-├── python/                         # Python SDK
+├── python/                         # Python SDK (read-only)
 │   ├── src/direnv_config/
 │   │   ├── __init__.py             #   Package exports
 │   │   ├── cli.py                  #   CLI backend
@@ -57,6 +57,10 @@ sdk/
 │   ├── tests/                      #   pytest tests (contract, native, path, store)
 │   ├── pyproject.toml              #   Package manifest
 │   └── .gitignore
+├── rust/                           # Rust SDK (read + write, crates.io: direnv-config)
+│   ├── src/                        #   Client, store, path, version modules
+│   ├── Cargo.toml                  #   Package manifest
+│   └── README.md
 ├── typescript/                     # TypeScript SDK
 │   ├── src/
 │   │   ├── backends/               #   CLI and native backends
@@ -70,6 +74,7 @@ sdk/
 │   ├── tsconfig.json
 │   ├── tsup.config.ts              #   Build config (bundling)
 │   └── vitest.config.ts            #   Test config
+├── Makefile                        # Cross-SDK build/test/publish targets
 └── README.md                       # SDK overview and quick-start
 ```
 

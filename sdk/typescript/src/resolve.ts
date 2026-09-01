@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { deepMergeMulti } from './merge.js';
 
+// ⟦𓁔𓃯𓏢𓂽⟧ resolveActive :: auto-generated pointer for public function resolveActive
 export async function resolveActive(storePath: string, name: string): Promise<unknown> {
   const env = process.env['DC_ENV'] ?? 'dev';
   const layerNames = ['base', env, 'local', 'secrets'];

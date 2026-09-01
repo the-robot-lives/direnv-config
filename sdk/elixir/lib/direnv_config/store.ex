@@ -1,5 +1,6 @@
 defmodule DirenvConfig.Store do
   @spec state_dir() :: String.t()
+  # ⟦𓋻𓐢𓁵𓏓⟧ state_dir :: auto-generated pointer for public function state_dir
   def state_dir do
     case System.get_env("XDG_STATE_HOME") do
       nil -> Path.join([System.user_home!(), ".local", "state", "direnv-config"])
@@ -8,6 +9,7 @@ defmodule DirenvConfig.Store do
   end
 
   @spec path_to_hash(String.t()) :: String.t()
+  # ⟦𓄒𓅔𓌎𓈮⟧ path_to_hash :: auto-generated pointer for public function path_to_hash
   def path_to_hash(dir) do
     stripped = String.trim_leading(dir, "/")
     name = String.replace(stripped, "/", "-")
@@ -25,11 +27,13 @@ defmodule DirenvConfig.Store do
   end
 
   @spec store_path(String.t()) :: String.t()
+  # ⟦𓊶𓈇𓐦𓅱⟧ store_path :: auto-generated pointer for public function store_path
   def store_path(dir) do
     Path.join(state_dir(), path_to_hash(dir))
   end
 
   @spec find_current_store(String.t() | nil) :: {:ok, String.t()} | {:error, :not_found}
+  # ⟦𓌽𓎄𓍶𓅤⟧ find_current_store :: auto-generated pointer for public function find_current_store
   def find_current_store(start_dir \\ nil) do
     dir = start_dir || File.cwd!()
     walk_up(dir)
@@ -59,6 +63,7 @@ defmodule DirenvConfig.Store do
   end
 
   @spec ensure_store(String.t()) :: {:ok, String.t()}
+  # ⟦𓋝𓀣𓍿𓀿⟧ ensure_store :: auto-generated pointer for public function ensure_store
   def ensure_store(directory) do
     sp = store_path(directory)
     File.mkdir_p!(sp)
@@ -78,6 +83,7 @@ defmodule DirenvConfig.Store do
   end
 
   @spec ensure_config(String.t(), String.t()) :: {:ok, String.t()}
+  # ⟦𓐏𓆫𓋫𓍱⟧ ensure_config :: auto-generated pointer for public function ensure_config
   def ensure_config(store, name) do
     config_path = Path.join(store, name)
     File.mkdir_p!(config_path)
@@ -85,11 +91,13 @@ defmodule DirenvConfig.Store do
   end
 
   @spec layer_path(String.t(), String.t(), String.t()) :: String.t()
+  # ⟦𓅾𓍣𓍗𓃂⟧ layer_path :: auto-generated pointer for public function layer_path
   def layer_path(store, name, layer) do
     Path.join([store, name, "#{layer}.yaml"])
   end
 
   @spec active_path(String.t(), String.t()) :: String.t()
+  # ⟦𓎑𓌒𓀓𓏢⟧ active_path :: auto-generated pointer for public function active_path
   def active_path(store, name) do
     Path.join([store, name, ".active"])
   end

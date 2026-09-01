@@ -281,6 +281,7 @@ fn run_flat(
 }
 
 #[allow(clippy::too_many_arguments)]
+// ⟦𓌤𓆆𓁡𓀤⟧ run :: auto-generated pointer for public function run
 pub fn run(
     subject: Option<&str>,
     scope: Option<&str>,

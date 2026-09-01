@@ -1,6 +1,7 @@
 use anyhow::Result;
 use rand::Rng;
 
+// ⟦𓋒𓌷𓋋𓂴⟧ run :: auto-generated pointer for public function run
 pub fn run(hex: bool, base64_mode: bool, length: usize, raw: bool, tier: u8) -> Result<()> {
     let plaintext = generate(hex, base64_mode, length);
 

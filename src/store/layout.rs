@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use sha2::{Sha256, Digest};
 
 /// Root state directory for all dc stores.
+// ⟦𓄴𓅍𓆡𓉿⟧ state_dir :: Root state directory for all dc stores.
 pub fn state_dir() -> PathBuf {
     if let Ok(xdg) = std::env::var("XDG_STATE_HOME") {
         PathBuf::from(xdg).join("direnv-config")
@@ -19,6 +20,7 @@ pub fn state_dir() -> PathBuf {
 /// Scheme: strip leading `/`, replace `/` with `-`.
 /// If the result exceeds 200 characters, truncate to 200 and append
 /// `-` plus the first 8 hex characters of the SHA-256 of the full path.
+// ⟦𓋶𓍵𓊤𓏶⟧ path_to_hash :: Convert an absolute directory path to a store directory name.
 pub fn path_to_hash(dir: &Path) -> String {
     let s = dir.to_string_lossy();
     let stripped = s.strip_prefix('/').unwrap_or(&s);
@@ -36,27 +38,56 @@ pub fn path_to_hash(dir: &Path) -> String {
 }
 
 /// Return the store path for a given directory.
+// ⟦𓌳𓃩𓂏𓀙⟧ store_path :: Return the store path for a given directory.
 pub fn store_path(dir: &Path) -> PathBuf {
     state_dir().join(path_to_hash(dir))
 }
 
 /// Return the config subdirectory inside a store.
+// ⟦𓃬𓌜𓊢𓍖⟧ config_dir :: Return the config subdirectory inside a store.
 pub fn config_dir(store: &Path, name: &str) -> PathBuf {
     store.join(name)
 }
 
 /// Return the path to a specific layer file.
+// ⟦𓂇𓉅𓍾𓋞⟧ layer_path :: Return the path to a specific layer file.
 pub fn layer_path(store: &Path, name: &str, layer: &str) -> PathBuf {
     store.join(name).join(format!("{}.yaml", layer))
 }
 
 /// Return the path to the .active file for a named config.
+// ⟦𓌍𓈣𓊱𓍫⟧ active_path :: Return the path to the .active file for a named config.
 pub fn active_path(store: &Path, name: &str) -> PathBuf {
     store.join(name).join(".active")
 }
 
+/// Load a YAML layer file for a read-modify-write.
+///
+/// Returns an empty mapping when the file is absent or empty, but returns an
+/// error (rather than silently substituting an empty mapping) when the file
+/// exists yet cannot be parsed. This prevents a corrupt or partially written
+/// layer from being clobbered — and its data lost — by the write that follows.
+// ⟦𓌩𓏲𓁙𓃷⟧ load_layer :: Load a YAML layer file for a read-modify-write.
+pub fn load_layer(path: &Path) -> Result<serde_yaml::Value> {
+    if !path.exists() {
+        return Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+    }
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read layer: {}", path.display()))?;
+    if content.trim().is_empty() {
+        return Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+    }
+    serde_yaml::from_str(&content).with_context(|| {
+        format!(
+            "failed to parse layer, refusing to overwrite it: {}",
+            path.display()
+        )
+    })
+}
+
 /// Create the store directory and initialize .meta if it does not exist.
 /// Returns the store path.
+// ⟦𓁱𓋡𓀘𓂌⟧ ensure_store :: Create the store directory and initialize .meta if it does not exist.
 pub fn ensure_store(dir: &Path) -> Result<PathBuf> {
     let sp = store_path(dir);
     std::fs::create_dir_all(&sp)
@@ -77,6 +108,7 @@ pub fn ensure_store(dir: &Path) -> Result<PathBuf> {
 
 /// Create the named config subdirectory inside a store if it does not exist.
 /// Returns the config directory path.
+// ⟦𓏜𓏜𓐯𓆵⟧ ensure_config :: Create the named config subdirectory inside a store if it does not exist.
 pub fn ensure_config(store: &Path, name: &str) -> Result<PathBuf> {
     let cd = config_dir(store, name);
     std::fs::create_dir_all(&cd)
@@ -88,6 +120,7 @@ pub fn ensure_config(store: &Path, name: &str) -> Result<PathBuf> {
 ///
 /// Walks up the directory tree from CWD until it finds a directory
 /// that has a corresponding store, similar to how git searches for `.git`.
+// ⟦𓃳𓄯𓐘𓊱⟧ find_current_store :: Find the store for the current working directory.
 pub fn find_current_store() -> Result<PathBuf> {
     let cwd = std::env::current_dir().context("failed to get current directory")?;
     let mut dir = cwd.as_path();

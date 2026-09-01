@@ -3,6 +3,7 @@ use serde_yaml::Value;
 use std::io::Read;
 use std::path::Path;
 
+// ⟦𓂎𓀅𓄗𓀞⟧ run :: auto-generated pointer for public function run
 pub fn run(
     name: &str,
     layer: Option<&str>,
@@ -13,6 +14,7 @@ pub fn run(
 ) -> Result<()> {
     let cwd = std::env::current_dir()?;
     let store = crate::store::ensure_store(&cwd)?;
+    let _lock = crate::store::lock_store(&store)?;
     crate::store::ensure_config(&store, name)?;
 
     let layer_name = layer.unwrap_or("base");
@@ -91,7 +93,7 @@ pub(crate) fn apply(
         })?;
         let enc_tree = crate::secret::build_encrypted_tree(secrets, key)?;
         let secrets_file = crate::store::layout::layer_path(store, name, "secrets");
-        let existing = read_layer(&secrets_file);
+        let existing = crate::store::load_layer(&secrets_file)?;
         let merged = crate::yaml::merge::deep_merge(&existing, &enc_tree);
         std::fs::write(&secrets_file, serde_yaml::to_string(&merged)?)?;
     }
@@ -99,23 +101,12 @@ pub(crate) fn apply(
     Ok(())
 }
 
-fn read_layer(path: &Path) -> Value {
-    if path.exists() {
-        std::fs::read_to_string(path)
-            .ok()
-            .and_then(|c| serde_yaml::from_str(&c).ok())
-            .unwrap_or_else(|| Value::Mapping(serde_yaml::Mapping::new()))
-    } else {
-        Value::Mapping(serde_yaml::Mapping::new())
-    }
-}
-
 fn write_layer(layer_file: &Path, input: &Value, replace: bool, replace_key: Option<&str>) -> Result<()> {
     if replace {
         std::fs::write(layer_file, serde_yaml::to_string(input)?)?;
     } else if let Some(rk) = replace_key {
         // Replace just one branch: load existing, replace that key, write back.
-        let mut existing = read_layer(layer_file);
+        let mut existing = crate::store::load_layer(layer_file)?;
         if let (Value::Mapping(ref mut emap), Value::Mapping(ref imap)) = (&mut existing, input) {
             let key_val = Value::String(rk.to_string());
             if let Some(new_val) = imap.get(&key_val) {
@@ -125,7 +116,7 @@ fn write_layer(layer_file: &Path, input: &Value, replace: bool, replace_key: Opt
         std::fs::write(layer_file, serde_yaml::to_string(&existing)?)?;
     } else {
         // Deep merge.
-        let existing = read_layer(layer_file);
+        let existing = crate::store::load_layer(layer_file)?;
         let merged = crate::yaml::merge::deep_merge(&existing, input);
         std::fs::write(layer_file, serde_yaml::to_string(&merged)?)?;
     }
@@ -146,7 +137,7 @@ mod tests {
     }
 
     fn read(store: &Path, name: &str, layer: &str) -> Value {
-        read_layer(&crate::store::layout::layer_path(store, name, layer))
+        crate::store::load_layer(&crate::store::layout::layer_path(store, name, layer)).unwrap()
     }
 
     #[test]

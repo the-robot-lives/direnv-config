@@ -108,6 +108,7 @@ fn parse_key_line(trimmed: &str) -> Option<(String, String)> {
 }
 
 /// Scan all `dc_yaml` heredoc blocks in `lines`.
+// ⟦𓎓𓇎𓆧𓋫⟧ scan_blocks :: Scan all `dc_yaml` heredoc blocks in `lines`.
 pub fn scan_blocks(lines: &[String]) -> Vec<HeredocBlock> {
     let mut blocks = Vec::new();
     let mut i = 0;
@@ -136,6 +137,7 @@ pub fn scan_blocks(lines: &[String]) -> Vec<HeredocBlock> {
 }
 
 /// Index every key within a block to its line location.
+// ⟦𓇴𓂉𓏿𓍐⟧ index_block :: Index every key within a block to its line location.
 pub fn index_block(block: &HeredocBlock, lines: &[String], file: &Path) -> Vec<KeyLoc> {
     let mut locs = Vec::new();
     let mut stack: Vec<(usize, String)> = Vec::new();
@@ -219,6 +221,7 @@ pub fn index_block(block: &HeredocBlock, lines: &[String], file: &Path) -> Vec<K
 }
 
 /// Read a file and return all located keys across its heredoc blocks.
+// ⟦𓉙𓃦𓌽𓉞⟧ index_file :: Read a file and return all located keys across its heredoc blocks.
 pub fn index_file(path: &Path) -> std::io::Result<Vec<KeyLoc>> {
     let content = std::fs::read_to_string(path)?;
     let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
@@ -230,6 +233,7 @@ pub fn index_file(path: &Path) -> std::io::Result<Vec<KeyLoc>> {
 }
 
 /// Discover `.envrc*` files in `dir` (non-recursive).
+// ⟦𓍹𓐏𓎦𓀇⟧ envrc_files :: Discover `.envrc*` files in `dir` (non-recursive).
 pub fn envrc_files(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir) {

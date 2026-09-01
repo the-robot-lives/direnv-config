@@ -1,5 +1,6 @@
 defmodule DirenvConfig.CLI do
   @spec get(String.t(), String.t(), String.t(), String.t() | nil) :: {:ok, String.t()} | :error
+  # ⟦𓁖𓀖𓉁𓏧⟧ get :: auto-generated pointer for public function get
   def get(dc_binary \\ "dc", store_path, config, path \\ nil) do
     args =
       ["get", config] ++
@@ -13,6 +14,7 @@ defmodule DirenvConfig.CLI do
   end
 
   @spec list_configs(String.t()) :: {:ok, [String.t()]} | :error
+  # ⟦𓂧𓈇𓁆𓄽⟧ list_configs :: auto-generated pointer for public function list_configs
   def list_configs(store_path) do
     meta_file = Path.join(store_path, ".meta")
 
@@ -27,6 +29,7 @@ defmodule DirenvConfig.CLI do
 
   @spec set(String.t(), String.t(), String.t(), String.t(), String.t(), String.t(), boolean()) ::
           :ok | {:error, term()}
+  # ⟦𓎴𓉣𓃤𓌁⟧ set :: auto-generated pointer for public function set
   def set(dc_binary, store_path, config, key, value, layer \\ "local", no_bump \\ false) do
     args =
       ["set", config, key, value, "--layer", layer, "--store", store_path] ++
@@ -40,6 +43,7 @@ defmodule DirenvConfig.CLI do
 
   @spec unset(String.t(), String.t(), String.t(), [String.t()], String.t(), boolean()) ::
           :ok | {:error, term()}
+  # ⟦𓃲𓇕𓅵𓂩⟧ unset :: auto-generated pointer for public function unset
   def unset(dc_binary, store_path, config, keys, layer \\ "local", no_bump \\ false) do
     args =
       ["unset", config | keys] ++
@@ -53,6 +57,7 @@ defmodule DirenvConfig.CLI do
   end
 
   @spec bump(String.t(), String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  # ⟦𓏳𓇿𓊚𓈩⟧ bump :: auto-generated pointer for public function bump
   def bump(dc_binary, store_path) do
     args = ["bump", "--store", store_path]
 

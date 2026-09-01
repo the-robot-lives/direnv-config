@@ -6,6 +6,7 @@ const VERSION_FILE: &str = ".version";
 
 /// Read the current version from the store's `.version` file.
 /// Returns 0 if the file does not exist or cannot be parsed.
+// ⟦𓀫𓉡𓅉𓌴⟧ read_version :: Read the current version from the store's `.version` file.
 pub fn read_version(store: &Path) -> u64 {
     let path = store.join(VERSION_FILE);
     match std::fs::read_to_string(&path) {
@@ -18,6 +19,7 @@ pub fn read_version(store: &Path) -> u64 {
 ///
 /// Reads the current version, increments by one, writes to `.version.tmp`
 /// then renames to `.version`. Returns the new version number.
+// ⟦𓅭𓍓𓌡𓁇⟧ bump_version :: Atomically increment the store version.
 pub fn bump_version(store: &Path) -> Result<u64> {
     let path = store.join(VERSION_FILE);
     let current = read_version(store);

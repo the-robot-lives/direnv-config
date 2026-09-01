@@ -1,8 +1,10 @@
 use anyhow::Result;
 
+// ⟦𓏰𓆢𓉢𓏦⟧ run :: auto-generated pointer for public function run
 pub fn run(name: &str, keys: &[String], layer: Option<&str>, no_bump: bool) -> Result<()> {
     let cwd = std::env::current_dir()?;
     let store = crate::store::ensure_store(&cwd)?;
+    let _lock = crate::store::lock_store(&store)?;
     crate::store::ensure_config(&store, name)?;
 
     let layer_name = layer.unwrap_or("local");
@@ -12,9 +14,7 @@ pub fn run(name: &str, keys: &[String], layer: Option<&str>, no_bump: bool) -> R
         return Ok(());
     }
 
-    let content = std::fs::read_to_string(&layer_file)?;
-    let mut doc: serde_yaml::Value = serde_yaml::from_str(&content)
-        .unwrap_or(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+    let mut doc = crate::store::load_layer(&layer_file)?;
 
     for key in keys {
         crate::yaml::path::delete_path(&mut doc, key);

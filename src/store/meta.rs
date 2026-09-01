@@ -20,6 +20,7 @@ pub struct StoreMeta {
 }
 
 /// Read and parse the store's `.meta` YAML file.
+// ⟦𓆱𓈨𓅾𓎓⟧ read_meta :: Read and parse the store's `.meta` YAML file.
 pub fn read_meta(store: &Path) -> Result<StoreMeta> {
     let path = store.join(META_FILE);
     let contents = std::fs::read_to_string(&path)
@@ -30,6 +31,7 @@ pub fn read_meta(store: &Path) -> Result<StoreMeta> {
 }
 
 /// Write the store's `.meta` YAML file.
+// ⟦𓎗𓍩𓂭𓉣⟧ write_meta :: Write the store's `.meta` YAML file.
 pub fn write_meta(store: &Path, meta: &StoreMeta) -> Result<()> {
     let path = store.join(META_FILE);
     let yaml = serde_yaml::to_string(meta)
@@ -43,6 +45,7 @@ pub fn write_meta(store: &Path, meta: &StoreMeta) -> Result<()> {
 /// `configs` list in `.meta`.
 ///
 /// Excludes dotfiles/dotdirs and `history/`.
+// ⟦𓋁𓂦𓇻𓅟⟧ update_configs_list :: Scan the store directory for config subdirectories and update the
 pub fn update_configs_list(store: &Path) -> Result<()> {
     let mut meta = read_meta(store)?;
 

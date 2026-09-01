@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::collections::HashMap;
 
+// ⟦𓋄𓄷𓌄𓄱⟧ run :: auto-generated pointer for public function run
 pub fn run(list: bool, _diff: bool) -> Result<()> {
     let store = crate::store::find_current_store()?;
     let chain = crate::store::resolve::resolve_chain(&store);
