@@ -7,6 +7,7 @@
 - **Rust CLI (`dc`)** — Manages YAML config stores: write configs, read values, resolve layers, export as env vars; secrets (encrypt/decrypt/gen/bat), `.envrc*` source editing (`config`), remote sync (compare/push/infisical)
 - **direnv stdlib (`lib/direnv-stdlib.sh`)** — Shell functions (`dc_yaml`, `dc_export`, `dc_get`, `dc_set`) used in `.envrc` files
 - **Shell hooks (`bin/dc-init`, `bin/tabbing-on-step`)** — `precmd` hook that watches `.version` for IPC-driven env reload; Zellij pane-title helper
+- **Completions (`completions/`)** — zsh (`_dc`) + bash (`dc.bash`) via `make install-completions` (`shell/dc.zsh` is a deprecated stub)
 - **SDKs (`sdk/`)** — Five language clients with native + CLI backends; `contract-tests/` shared fixtures
 - **Demo (`demo/`)** — Simulated project/k8 `.envrc` trees with expected-state fixtures
 

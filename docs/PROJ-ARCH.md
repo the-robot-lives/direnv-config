@@ -73,7 +73,8 @@ graph TB
 | `lib/direnv-stdlib.sh` | direnv extension functions (`dc_yaml`, `dc_export`, `dc_get`, `dc_set`) |
 | `bin/dc-init` | Shell hook generator — registers `precmd` for version-based IPC |
 | `bin/tabbing-on-step` | Zellij pane-title helper (step name + emoji via the IPC model) |
-| `shell/dc.zsh` | Zsh completions |
+| `shell/dc.zsh` | Deprecated stub — completion moved to `completions/` |
+| `completions/` | Shell completions: `_dc` (zsh), `dc.bash` (bash); installed via `make install-completions` |
 | `sdk/` | Client libraries in 5 languages with native and CLI backends; `contract-tests/` shared fixtures |
 | `demo/` | Simulated project/k8 `.envrc` trees with expected resolved-state fixtures for testing |
 
