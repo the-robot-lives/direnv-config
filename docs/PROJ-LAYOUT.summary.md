@@ -11,7 +11,8 @@ direnv-config/
 │   └── *.rs                    #   Secrets, crypto, Infisical, kube, settings
 ├── bin/                        # dc-init, tabbing-on-step
 ├── lib/direnv-stdlib.sh        # direnv stdlib extension
-├── shell/dc.zsh                # Zsh completions
+├── shell/dc.zsh                # Deprecated stub → completions/_dc
+├── completions/                # _dc (zsh), dc.bash (bash) — make install-completions
 ├── sdk/                        # Multi-language SDKs
 │   ├── contract-tests/
 │   ├── elixir/
@@ -20,11 +21,12 @@ direnv-config/
 │   ├── rust/
 │   └── typescript/
 ├── demo/                       # Demo/test environments
-├── docs/                       # Documentation (arch/, layout/)
+├── docs/                       # Documentation (arch/, howto/, layout/; PROJ-ARCH/HOWTO/FAQ/LAYOUT)
 ├── .github/workflows/          # CI + SDK publishing
 ├── Cargo.toml
 ├── Makefile
 ├── CHANGELOG.md
+├── merge-notes.md              # Branch-sweep provenance (sep-1 2026-09-01)
 ├── LICENSE
 └── README.md
 ```

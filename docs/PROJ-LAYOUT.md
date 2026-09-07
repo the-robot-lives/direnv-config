@@ -17,7 +17,10 @@ direnv-config/
 ├── lib/
 │   └── direnv-stdlib.sh        #   direnv stdlib extension (dc_yaml, dc_export, dc_set, etc.)
 ├── shell/
-│   └── dc.zsh                  #   Zsh completions
+│   └── dc.zsh                  #   Deprecated stub — completion moved to completions/_dc
+├── completions/
+│   ├── _dc                     #   Zsh completion (install: make install-completions)
+│   └── dc.bash                 #   Bash completion (bash-completion v2 auto-load)
 ├── sdk/                        # Client libraries → [layout/sdk.md](layout/sdk.md)
 │   ├── contract-tests/         #   Shared test fixtures and expectations
 │   ├── elixir/                 #   Elixir SDK (:direnv_config)
@@ -35,13 +38,17 @@ direnv-config/
 ├── docs/                       # Documentation
 │   ├── arch/                   #   Architecture notes (flatten-rules, layer-resolution, parent-chain)
 │   ├── layout/                 #   Detailed layout breakdowns (src.md, sdk.md)
+│   └── howto/                  #   Step-by-step guides (first-hour, manage-secrets, migrate-envrc, …)
 │   ├── PROJ-ARCH.md            #   Architecture overview (+ .summary.md)
+│   ├── PROJ-HOWTO.md           #   Task-oriented howto index (+ .summary.md) → [howto/](howto/)
+│   ├── PROJ-FAQ.md             #   FAQ (+ .summary.md)
 │   ├── PROJ-LAYOUT.md          #   This file
 │   └── PROJ-LAYOUT.summary.md  #   Quick-reference tree
 ├── .github/workflows/          # CI (ci.yml) and SDK publishing (publish-sdks.yml)
 ├── Cargo.toml                  # Rust package manifest (binary: dc)
-├── Makefile                    # Build, install, test, check, doctor, clean
+├── Makefile                    # Build, install, test, check, doctor, install-completions, clean
 ├── CHANGELOG.md                # Release history
+├── merge-notes.md              # Branch-sweep provenance note (sep-1 2026-09-01)
 ├── LICENSE                     # MIT
 ├── README.md                   # Project overview and usage
 └── .gitignore                  # Excludes: target/, .env, .envrc.local
@@ -62,5 +69,6 @@ direnv-config/
 | CLI binary | `~/.local/bin/dc` |
 | Shell initializer | `~/.local/bin/dc-init` |
 | direnv stdlib | `~/.config/direnv/lib/dc.sh` → symlink to `lib/direnv-stdlib.sh` |
+| Shell completions | bash: `~/.local/share/bash-completion/completions/dc`; zsh: `~/.local/share/zsh/site-functions/_dc` (`make install-completions`) |
 | Runtime state | `~/.local/state/direnv-config/{path-hash}/` |
 | Global settings | `~/.config/direnv-config/settings.yaml` |
