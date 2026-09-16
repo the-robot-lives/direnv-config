@@ -74,13 +74,33 @@ fn lock_state(path: &Path) -> String {
 #[cfg(unix)]
 fn immutable_flag(path: &Path) -> Option<bool> {
     if cfg!(target_os = "macos") {
-        // macOS: uchg shows in `ls -lO` flags column.
-        let out = std::process::Command::new("ls").arg("-lO").arg(path).output().ok()?;
-        Some(String::from_utf8_lossy(&out.stdout).contains("uchg"))
+        // `stat -f %Sf` prints ONLY the flags field (e.g. "uchg" or "0").
+        let out = std::process::Command::new("stat").arg("-f").arg("%Sf").arg(path).output().ok()?;
+        Some(stat_flags_have_uchg(&String::from_utf8_lossy(&out.stdout)))
     } else {
+        // lsattr prints `<flags> <path>` — only the flags COLUMN may be searched,
+        // else a path containing 'i' false-positives LOCKED.
         let out = std::process::Command::new("lsattr").arg(path).output().ok()?;
-        Some(String::from_utf8_lossy(&out.stdout).contains('i'))
+        Some(lsattr_flags_have_i(&String::from_utf8_lossy(&out.stdout)))
     }
+}
+
+/// macOS stat(1) %Sf output: whitespace-separated flag names (or `0`).
+#[cfg(unix)]
+fn stat_flags_have_uchg(out: &str) -> bool {
+    out.split_whitespace()
+        .flat_map(|f| f.split(','))
+        .any(|f| f == "uchg")
+}
+
+/// Linux lsattr output: first whitespace field is the flags column.
+#[cfg(unix)]
+fn lsattr_flags_have_i(out: &str) -> bool {
+    out.lines()
+        .next()
+        .and_then(|l| l.split_whitespace().next())
+        .map(|flags| flags.contains('i'))
+        .unwrap_or(false)
 }
 
 // ⟦𓋹𓆗𓂀𓊛⟧ run_migrate :: Move key from settings.yaml to the key file, verifying every token decrypts first.
@@ -183,6 +203,8 @@ fn is_token_char(c: char) -> bool {
 }
 
 /// Remove `key:` from settings.yaml, keeping a 0600 `.pre-keys` backup.
+/// The backup is written via temp+chmod-0600+rename so key material never
+/// rests on disk at umask perms.
 // ⟦𓊓𓆏𓍾𓄂⟧ strip_legacy_key :: Remove `key:` from settings.yaml, keeping a backup.
 fn strip_legacy_key(spath: &Path) -> Result<()> {
     let raw = std::fs::read_to_string(spath)
@@ -195,11 +217,17 @@ fn strip_legacy_key(spath: &Path) -> Result<()> {
         })
         .collect();
     let backup = spath.with_extension("yaml.pre-keys");
-    std::fs::write(&backup, &raw)?;
+    let tmp = spath.with_extension("yaml.pre-keys.tmp");
+    std::fs::write(&tmp, &raw)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&backup, std::fs::Permissions::from_mode(0o600))?;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+    }
+    std::fs::rename(&tmp, &backup)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(spath, std::fs::Permissions::from_mode(0o600))?;
     }
     std::fs::write(spath, kept.join("\n") + "\n")?;
@@ -333,5 +361,40 @@ mod tests {
         bad[0] ^= 0xff;
         assert!(verify_store(&path, &bad).is_err(), "wrong key must abort");
         std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn lsattr_flags_column_only() {
+        // flags column has NO 'i'; the path contains 'i' — must not false-positive.
+        assert!(!lsattr_flags_have_i(
+            "--------------e--- /Users/keith/.immutable.config/dc/keys\n"
+        ));
+        assert!(lsattr_flags_have_i(
+            "-------i------e--- /Users/keith/.config/direnv-config/keys\n"
+        ));
+        assert!(!lsattr_flags_have_i(""));
+    }
+
+    #[test]
+    fn stat_flags_field_only() {
+        assert!(stat_flags_have_uchg("uchg"));
+        assert!(!stat_flags_have_uchg("0"));
+        assert!(!stat_flags_have_uchg(""));
+        assert!(stat_flags_have_uchg("uchg,sappnd"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn strip_legacy_key_backup_is_0600() {
+        let dir = std::env::temp_dir().join(format!("dc-strip-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.yaml");
+        std::fs::write(&path, "# comment\neye: 1\nkey: abc\nother: 2\n").unwrap();
+        strip_legacy_key(&path).unwrap();
+        let backup = path.with_extension("yaml.pre-keys");
+        assert_eq!(crate::keys::mode_of(&backup) & 0o777, 0o600);
+        let kept = std::fs::read_to_string(&path).unwrap();
+        assert!(!kept.contains("key: abc"));
+        assert!(kept.contains("eye: 1") && kept.contains("other: 2"));
     }
 }
