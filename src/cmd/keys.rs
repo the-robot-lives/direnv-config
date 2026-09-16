@@ -213,6 +213,13 @@ pub fn run_lock(yes: bool) -> Result<()> {
         bail!("no key file at {} — run `dc keys migrate` first", kpath.display());
     }
     let cmds = harden_cmds(&kpath);
+    // No world-readable key artifact may survive anywhere: while a legacy
+    // `key:` still lives in settings.yaml, tighten that file too.
+    let spath = crate::settings::settings_path();
+    if crate::keys::legacy_key()?.is_some() {
+        println!("note: legacy `key:` still present in {} — included in hardening", spath.display());
+        cmds.push(format!("sudo chmod 0600 {}", spath.display()));
+    }
     println!("dc needs only READ access to the key file for both encrypt and decrypt.");
     println!("Hardening (run as a user who can sudo; you keep read access):\n");
     for c in &cmds {
