@@ -3,6 +3,7 @@ mod cmd;
 mod crypto;
 mod envrc;
 mod infisical;
+mod keys;
 mod kube;
 mod secret;
 mod secretcmp;
@@ -244,6 +245,38 @@ enum Commands {
         #[command(subcommand)]
         sub: InfisicalCmd,
     },
+    /// Manage the external, lockable encryption-key file
+    Keys {
+        #[command(subcommand)]
+        sub: KeysCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum KeysCmd {
+    /// Report which key mode the configuration is in (external key file vs legacy settings.yaml)
+    Status,
+    /// Move the legacy `key:` from settings.yaml into the key file, verifying every
+    /// store token decrypts via the new file before stripping key material
+    Migrate {
+        /// Store files to verify (default: ./.envrc.dc)
+        stores: Vec<String>,
+        /// Only strip the legacy `key:` from settings.yaml (key file already exists)
+        #[arg(long)]
+        strip_only: bool,
+    },
+    /// Print (and with --yes run) root-ownership hardening for the key file
+    Lock {
+        /// Execute the hardening commands via sudo
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Reverse key-file hardening (back to 0600 user-owned)
+    Unlock {
+        /// Execute the unlock commands via sudo
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -416,6 +449,12 @@ fn main() -> anyhow::Result<()> {
             InfisicalCmd::Set { name, value, from, stdin, encrypted, yes } => {
                 cmd::infisical::set(&name, value.as_deref(), from.as_deref(), stdin, encrypted, yes)
             }
+        },
+        Commands::Keys { sub } => match sub {
+            KeysCmd::Status => cmd::keys::run_status(),
+            KeysCmd::Migrate { stores, strip_only } => cmd::keys::run_migrate(&stores, strip_only),
+            KeysCmd::Lock { yes } => cmd::keys::run_lock(yes),
+            KeysCmd::Unlock { yes } => cmd::keys::run_unlock(yes),
         },
     }
 }
