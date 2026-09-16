@@ -212,7 +212,7 @@ pub fn run_lock(yes: bool) -> Result<()> {
     if !kpath.exists() {
         bail!("no key file at {} — run `dc keys migrate` first", kpath.display());
     }
-    let cmds = harden_cmds(&kpath);
+    let mut cmds = harden_cmds(&kpath);
     // No world-readable key artifact may survive anywhere: while a legacy
     // `key:` still lives in settings.yaml, tighten that file too.
     let spath = crate::settings::settings_path();
