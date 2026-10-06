@@ -5,12 +5,12 @@
 ```
 direnv-config/
 ├── src/                        # Rust CLI source → [layout/src.md](layout/src.md)
-│   ├── cmd/                    #   Subcommands (get, set, env, bat, compare, config, encrypt/decrypt, gen, infisical, push, secrets, …)
+│   ├── cmd/                    #   Subcommands (get/set/env, bat, compare, config, encrypt/decrypt, gen, keys, infisical, push, secrets, status, prune/purge, unset, yaml, …)
 │   ├── envrc/                  #   Hand-authored .envrc* editing (heredoc locator)
 │   ├── store/                  #   Store operations (layout, lock, meta, resolve, version)
 │   ├── yaml/                   #   YAML utilities (flatten, merge, path expressions)
 │   ├── main.rs                 #   Entry point
-│   └── *.rs                    #   Secrets/crypto/audit, Infisical client, kubectl access, settings
+│   └── *.rs                    #   Secrets/crypto/audit, key file, Infisical client, kubectl access, settings, shadow store, target URIs
 ├── bin/
 │   ├── dc-init                 #   Shell initializer (zsh hook, IPC watcher)
 │   └── tabbing-on-step         #   Zellij pane-title helper (step name + emoji)
@@ -40,17 +40,21 @@ direnv-config/
 │   ├── layout/                 #   Detailed layout breakdowns (src.md, sdk.md)
 │   └── howto/                  #   Step-by-step guides (first-hour, manage-secrets, migrate-envrc, …)
 │   ├── PROJ-ARCH.md            #   Architecture overview (+ .summary.md)
+│   ├── PROJ-SCHEMA.md          #   Config/store data model (+ .summary.md)
 │   ├── PROJ-HOWTO.md           #   Task-oriented howto index (+ .summary.md) → [howto/](howto/)
 │   ├── PROJ-FAQ.md             #   FAQ (+ .summary.md)
 │   ├── PROJ-LAYOUT.md          #   This file
 │   └── PROJ-LAYOUT.summary.md  #   Quick-reference tree
 ├── .github/workflows/          # CI (ci.yml) and SDK publishing (publish-sdks.yml)
 ├── Cargo.toml                  # Rust package manifest (binary: dc)
+├── Cargo.lock                  # Pinned Rust dependency versions
 ├── Makefile                    # Build, install, test, check, doctor, install-completions, clean
 ├── CHANGELOG.md                # Release history
 ├── merge-notes.md              # Branch-sweep provenance note (sep-1 2026-09-01)
 ├── LICENSE                     # MIT
 ├── README.md                   # Project overview and usage
+├── CLAUDE.md                   # Agent guidance (commands, monorepo + worktree rules)
+├── AGENTS.md / AGENT.md        # Multi-agent build rules / mirror
 └── .gitignore                  # Excludes: target/, .env, .envrc.local
 ```
 

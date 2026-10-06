@@ -21,12 +21,15 @@ direnv-config/
 │   ├── rust/
 │   └── typescript/
 ├── demo/                       # Demo/test environments
-├── docs/                       # Documentation (arch/, howto/, layout/; PROJ-ARCH/HOWTO/FAQ/LAYOUT)
+├── docs/                       # Documentation (arch/, howto/, layout/; PROJ-ARCH/SCHEMA/HOWTO/FAQ/LAYOUT)
 ├── .github/workflows/          # CI + SDK publishing
 ├── Cargo.toml
+├── Cargo.lock
 ├── Makefile
 ├── CHANGELOG.md
 ├── merge-notes.md              # Branch-sweep provenance (sep-1 2026-09-01)
 ├── LICENSE
-└── README.md
+├── README.md
+├── CLAUDE.md                   # Agent guidance (AGENTS.md / AGENT.md mirrors)
+└── .gitignore
 ```

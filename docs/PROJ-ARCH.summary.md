@@ -4,7 +4,7 @@
 
 ## Components
 
-- **Rust CLI (`dc`)** — Manages YAML config stores: write configs, read values, resolve layers, export as env vars; secrets (encrypt/decrypt/gen/bat), `.envrc*` source editing (`config`), remote sync (compare/push/infisical)
+- **Rust CLI (`dc`)** — Manages YAML config stores: write configs, read values, resolve layers, export as env vars; secrets (encrypt/decrypt/gen/bat), `.envrc*` source editing (`config`), key-file management (`keys`), remote sync (compare/push/infisical)
 - **direnv stdlib (`lib/direnv-stdlib.sh`)** — Shell functions (`dc_yaml`, `dc_export`, `dc_get`, `dc_set`) used in `.envrc` files
 - **Shell hooks (`bin/dc-init`, `bin/tabbing-on-step`)** — `precmd` hook that watches `.version` for IPC-driven env reload; Zellij pane-title helper
 - **Completions (`completions/`)** — zsh (`_dc`) + bash (`dc.bash`) via `make install-completions` (`shell/dc.zsh` is a deprecated stub)
@@ -26,4 +26,4 @@ Standalone Rust project (own `make install`, no `k8-lib`) — a dependency of th
 
 ## Technology
 
-Rust (clap, serde_yaml, anyhow, chacha20poly1305, reqwest+rustls), POSIX shell, YAML configs stored at `~/.local/state/direnv-config/`; key/settings at `~/.config/direnv-config/settings.yaml`.
+Rust (clap, serde_yaml, anyhow, chacha20poly1305, reqwest+rustls), POSIX shell, YAML configs stored at `~/.local/state/direnv-config/`; key in the external lockable file `~/.config/direnv-config/keys` (legacy `settings.yaml` fallback), settings at `~/.config/direnv-config/settings.yaml`.
