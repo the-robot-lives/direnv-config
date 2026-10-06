@@ -1,0 +1,762 @@
+---
+pointers:
+  ff3fe720-3a9b-5220-b438-cd19b3c15511:
+    created_at: 2026-09-14T20:42:45.983269Z
+    description: Convert an absolute directory path to a store directory name.
+    file_path: src/store/layout.rs
+    function: path_to_hash
+    line: 23
+    token: 𓋶𓍵𓊤𓏶
+    updated_at: 2026-09-14T20:42:45.983269Z
+  42b9a543-ba6b-575e-b459-c62ee41382b7:
+    created_at: 2026-09-14T20:42:45.989281Z
+    description: auto-generated pointer for public function ensure_config
+    file_path: sdk/elixir/lib/direnv_config/store.ex
+    function: ensure_config
+    line: 86
+    token: 𓐏𓆫𓋫𓍱
+    updated_at: 2026-09-14T20:42:45.989281Z
+  eba5c33f-cf4f-5774-9b72-45f06e4de500:
+    created_at: 2026-09-14T20:42:45.985621Z
+    description: Parse a dot-separated path string into segments.
+    file_path: sdk/rust/src/path.rs
+    function: parse_path
+    line: 31
+    token: 𓉙𓁮𓆻𓉇
+    updated_at: 2026-09-14T20:42:45.985621Z
+  '0b1603fa-70c3-535c-8de6-83415d459493':
+    created_at: 2026-09-14T20:42:45.979546Z
+    description: 'Constant-time-ish equality: compare SHA-256 digests of both inputs.'
+    file_path: src/secretcmp.rs
+    function: eq_ct
+    line: 10
+    token: 𓐩𓇐𓍟𓆶
+    updated_at: 2026-09-14T20:42:45.979546Z
+  8721873a-2305-52e2-9efb-4675bc196a56:
+    created_at: 2026-09-14T20:42:45.976751Z
+    description: Whether this rule has a wildcard (`*`) as the final path segment.
+    file_path: src/yaml/flatten.rs
+    function: is_wildcard
+    line: 24
+    token: 𓐥𓈥𓏳𓇻
+    updated_at: 2026-09-14T20:42:45.976751Z
+  fbd2c1fd-5c4c-5630-93d7-c91fe5834cb6:
+    created_at: 2026-09-14T20:42:45.987093Z
+    description: auto-generated pointer for public function store_path
+    file_path: sdk/elixir/lib/direnv_config/store.ex
+    function: store_path
+    line: 30
+    token: 𓊶𓈇𓐦𓅱
+    updated_at: 2026-09-14T20:42:45.987093Z
+  b9e801b2-b4d8-5641-928a-46944146763f:
+    created_at: 2026-09-14T20:42:45.988277Z
+    description: Emit exports with additional `DC_ROOT`, `DC_VERSION`, and `DC_ENV` variables
+    file_path: src/yaml/flatten.rs
+    function: emit_exports_with_dc_vars
+    line: 222
+    token: 𓎦𓆻𓍂𓋌
+    updated_at: 2026-09-14T20:42:45.988277Z
+  1521dce0-58a3-5698-8c39-f53b0fdf2d40:
+    created_at: 2026-09-14T20:42:45.972612Z
+    description: Scan the store directory for config subdirectories and update the
+    file_path: src/store/meta.rs
+    function: update_configs_list
+    line: 48
+    token: 𓋁𓂦𓇻𓅟
+    updated_at: 2026-09-14T20:42:45.972612Z
+  e2209eb8-c4d4-59dd-9a6a-108c9c5eaad1:
+    created_at: 2026-09-14T20:42:45.989450Z
+    description: 'Return the path to a specific layer file: `{store}/{name}/{layer}.yaml`.'
+    file_path: sdk/rust/src/store.rs
+    function: layer_path
+    line: 114
+    token: 𓌍𓌟𓄒𓏨
+    updated_at: 2026-09-14T20:42:45.989450Z
+  eab08bb8-be6a-5ebf-93fa-f11692a8ce80:
+    created_at: 2026-09-14T20:42:45.976523Z
+    description: Parse flatten rules from the `_dc` config's `flatten` mapping.
+    file_path: src/yaml/flatten.rs
+    function: parse_rules
+    line: 48
+    token: 𓀚𓂧𓎊𓅗
+    updated_at: 2026-09-14T20:42:45.976523Z
+  8cdfadc0-0570-578a-b7e0-a39262b29987:
+    created_at: 2026-09-14T20:42:45.981818Z
+    description: auto-generated pointer for public function ensureStore
+    file_path: sdk/typescript/src/store.ts
+    function: ensureStore
+    line: 49
+    token: 𓊟𓌹𓅔𓆒
+    updated_at: 2026-09-14T20:42:45.981818Z
+  a06a0270-a4c0-5d3c-bd70-f86a5d06c249:
+    created_at: 2026-09-14T20:42:45.986760Z
+    description: Set a value at the given path, creating intermediate maps and sequences as needed.
+    file_path: sdk/rust/src/path.rs
+    function: set_path
+    line: 144
+    token: 𓉮𓐇𓆂𓃝
+    updated_at: 2026-09-14T20:42:45.986760Z
+  5bc950ef-6d72-5eaa-8305-7ff6addbd287:
+    created_at: 2026-09-14T20:42:45.979586Z
+    description: auto-generated pointer for public function has_changed?
+    file_path: sdk/elixir/lib/direnv_config/client.ex
+    function: has_changed?
+    line: 115
+    token: 𓆫𓉜𓈧𓆗
+    updated_at: 2026-09-14T20:42:45.979586Z
+  5b74b0dc-eb1e-513c-a25e-6817d8b18878:
+    created_at: 2026-09-14T20:42:45.987956Z
+    description: auto-generated pointer for public function get_bool
+    file_path: sdk/elixir/lib/direnv_config/client.ex
+    function: get_bool
+    line: 89
+    token: 𓀲𓄢𓌺𓎒
+    updated_at: 2026-09-14T20:42:45.987956Z
+  d1f9db76-629f-56b9-8fc3-387623d41b6a:
+    created_at: 2026-09-14T20:42:45.988965Z
+    description: auto-generated pointer for public function findCurrentStore
+    file_path: sdk/typescript/src/store.ts
+    function: findCurrentStore
+    line: 31
+    token: 𓎓𓍥𓅲𓃊
+    updated_at: 2026-09-14T20:42:45.988965Z
+  24ebc71e-0edb-54ed-a4aa-855dbc4fee85:
+    created_at: 2026-09-14T20:42:45.990474Z
+    description: auto-generated pointer for public function setPath
+    file_path: sdk/typescript/src/path.ts
+    function: setPath
+    line: 96
+    token: 𓂵𓍂𓊎𓎪
+    updated_at: 2026-09-14T20:42:45.990474Z
+  7c5b411d-5b7e-5584-b6f8-a47465ca8e0e:
+    created_at: 2026-09-14T20:42:45.985239Z
+    description: Format flatten results as `export KEY=VALUE\n` lines suitable for `eval`.
+    file_path: src/yaml/flatten.rs
+    function: emit_exports
+    line: 210
+    token: 𓍀𓊥𓄑𓁫
+    updated_at: 2026-09-14T20:42:45.985239Z
+  2767b386-65ca-5eb5-9f7e-ee53d7a4db30:
+    created_at: 2026-09-14T20:42:45.984288Z
+    description: Resolve a spec's value following the populate-secrets precedence.
+    file_path: src/secretsmap.rs
+    function: resolve_local
+    line: 214
+    token: 𓌖𓅘𓀇𓏮
+    updated_at: 2026-09-14T20:42:45.984288Z
+  a78762b9-607c-510b-af9a-02fde680d23c:
+    created_at: 2026-09-14T20:42:45.983125Z
+    description: Write the store's `.meta` YAML file.
+    file_path: src/store/meta.rs
+    function: write_meta
+    line: 34
+    token: 𓎗𓍩𓂭𓉣
+    updated_at: 2026-09-14T20:42:45.983125Z
+  1185ea08-b76e-5e40-ac0f-a2ae0db12cbd:
+    created_at: 2026-09-14T20:42:45.978423Z
+    description: auto-generated pointer for public function readVersion
+    file_path: sdk/typescript/src/version.ts
+    function: readVersion
+    line: 4
+    token: 𓆆𓃺𓎍𓇦
+    updated_at: 2026-09-14T20:42:45.978423Z
+  d1896058-2bc8-58f9-bbd5-39296e0dc174:
+    created_at: 2026-09-14T20:42:45.988749Z
+    description: auto-generated pointer for public function strip_tombstones
+    file_path: sdk/elixir/lib/direnv_config/merge.ex
+    function: strip_tombstones
+    line: 31
+    token: 𓀓𓋍𓋽𓊨
+    updated_at: 2026-09-14T20:42:45.988749Z
+  913a049f-aa62-575c-82e8-85970d4ea08e:
+    created_at: 2026-09-14T20:42:45.985426Z
+    description: Create or update a secret (create-or-update with no-op detection).
+    file_path: src/infisical.rs
+    function: upsert_secret
+    line: 220
+    token: 𓊯𓐪𓌉𓃿
+    updated_at: 2026-09-14T20:42:45.985426Z
+  bde0fc3d-bfa9-53c4-a8f6-cb15f057b32f:
+    created_at: 2026-09-14T20:42:45.990461Z
+    description: Index every key within a block to its line location.
+    file_path: src/envrc/locator.rs
+    function: index_block
+    line: 140
+    token: 𓇴𓂉𓏿𓍐
+    updated_at: 2026-09-14T20:42:45.990461Z
+  4dd6d056-3443-596d-95ae-9341edad29d7:
+    created_at: 2026-09-14T20:42:45.975360Z
+    description: Decrypt a `🔒:v1` (or legacy `dcenc:v1`) token, returning `(tier, plaintext)`.
+    file_path: src/crypto.rs
+    function: decode_token
+    line: 64
+    token: 𓌗𓃟𓉱𓁮
+    updated_at: 2026-09-14T20:42:45.975360Z
+  85d7f1b9-69fa-5b72-8edc-e5ed573d0f17:
+    created_at: 2026-09-14T20:42:45.989381Z
+    description: Given flatten rules and all resolved named configs, produce env var assignments.
+    file_path: src/yaml/flatten.rs
+    function: flatten
+    line: 115
+    token: 𓈶𓀅𓋼𓐝
+    updated_at: 2026-09-14T20:42:45.989381Z
+  0caae987-6ec5-52fd-affd-ce1f108d9d46:
+    created_at: 2026-09-14T20:42:45.989089Z
+    description: Read a single data key from a Secret, base64-decoded.
+    file_path: src/kube.rs
+    function: read_secret_key
+    line: 37
+    token: 𓐀𓈺𓌭𓊑
+    updated_at: 2026-09-14T20:42:45.989089Z
+  de0fe3e0-b51d-5ac9-8c5d-e29a314ddaf7:
+    created_at: 2026-09-14T20:42:45.972560Z
+    description: Find a `(section, spec)` by Infisical path + key.
+    file_path: src/secretsmap.rs
+    function: find_by_infisical_path
+    line: 146
+    token: 𓊬𓍋𓃭𓁼
+    updated_at: 2026-09-14T20:42:45.972560Z
+  960f286c-2cd7-5852-8210-f0b7f2a46171:
+    created_at: 2026-09-14T20:42:45.987137Z
+    description: Delete the value at the given path.
+    file_path: src/yaml/path.rs
+    function: delete_path
+    line: 238
+    token: 𓋻𓆧𓅼𓆆
+    updated_at: 2026-09-14T20:42:45.987137Z
+  915035c1-9d9c-5bb0-9396-9d6e556d621b:
+    created_at: 2026-09-14T20:42:45.987158Z
+    description: auto-generated pointer for public function completions
+    file_path: src/cmd/purge.rs
+    function: completions
+    line: 65
+    token: 𓉖𓋿𓈳𓏐
+    updated_at: 2026-09-14T20:42:45.987158Z
+  a4823e3f-4cb8-5da2-a64b-95114d4e5e18:
+    created_at: 2026-09-14T20:42:45.988822Z
+    description: auto-generated pointer for public function parsePath
+    file_path: sdk/typescript/src/path.ts
+    function: parsePath
+    line: 7
+    token: 𓆀𓊤𓈜𓆈
+    updated_at: 2026-09-14T20:42:45.988822Z
+  85aec4cc-282b-5c79-821b-a6e2d09cf8e5:
+    created_at: 2026-09-14T20:42:45.976287Z
+    description: Create or patch a single data key.
+    file_path: src/kube.rs
+    function: upsert_secret_key
+    line: 58
+    token: 𓀡𓈠𓉽𓇥
+    updated_at: 2026-09-14T20:42:45.976287Z
+  721aa2bd-89e6-50f0-90ee-4aae0a2e0719:
+    created_at: 2026-09-14T20:42:45.983608Z
+    description: Encrypt `plaintext` into a `🔒:v1` token carrying the sensitivity `tier`.
+    file_path: src/crypto.rs
+    function: encode_token
+    line: 48
+    token: 𓉞𓄼𓋯𓈬
+    updated_at: 2026-09-14T20:42:45.983608Z
+  c38ee457-a0f1-58e6-bdc3-8172c3df5d2e:
+    created_at: 2026-09-14T20:42:45.989664Z
+    description: Create the store directory and initialize `.meta` if it does not exist.
+    file_path: sdk/rust/src/store.rs
+    function: ensure_store
+    line: 84
+    token: 𓄥𓈷𓏕𓌊
+    updated_at: 2026-09-14T20:42:45.989664Z
+  1415be5b-a0b0-502e-a0a5-aacacdc3a321:
+    created_at: 2026-09-14T20:42:45.984873Z
+    description: Detect and strip a `🔒` secret marker.
+    file_path: src/secret.rs
+    function: parse_marker
+    line: 27
+    token: 𓆑𓏹𓊪𓎅
+    updated_at: 2026-09-14T20:42:45.984873Z
+  18eff048-3843-592b-a404-17317a523fea:
+    created_at: 2026-09-14T20:42:45.989343Z
+    description: auto-generated pointer for public function bump
+    file_path: sdk/elixir/lib/direnv_config/native.ex
+    function: bump
+    line: 94
+    token: 𓍞𓈣𓉏𓈁
+    updated_at: 2026-09-14T20:42:45.989343Z
+  50fc23a1-7d26-5a5e-93b5-3e7bdf3d9c85:
+    created_at: 2026-09-14T20:42:45.971913Z
+    description: auto-generated pointer for public function resolveActive
+    file_path: sdk/typescript/src/resolve.ts
+    function: resolveActive
+    line: 7
+    token: 𓁔𓃯𓏢𓂽
+    updated_at: 2026-09-14T20:42:45.971913Z
+  839d959f-3035-59db-a8c9-d478ee249151:
+    created_at: 2026-09-14T20:42:45.983852Z
+    description: GET a single secret value.
+    file_path: src/infisical.rs
+    function: get_secret
+    line: 195
+    token: 𓅇𓀟𓎁𓏺
+    updated_at: 2026-09-14T20:42:45.983852Z
+  ff3db020-669a-5613-a72b-bf3bb9f03f1a:
+    created_at: 2026-09-14T20:42:45.984248Z
+    description: Find all `(section, name, spec)` matching a secret NAME (across sections).
+    file_path: src/secretsmap.rs
+    function: find_by_name
+    line: 161
+    token: 𓐃𓁘𓃦𓄵
+    updated_at: 2026-09-14T20:42:45.984248Z
+  856ebf9d-77d3-58de-8693-32d04c806d4e:
+    created_at: 2026-09-14T20:42:45.983653Z
+    description: Find the store for the current working directory.
+    file_path: src/store/layout.rs
+    function: find_current_store
+    line: 123
+    token: 𓃳𓄯𓐘𓊱
+    updated_at: 2026-09-14T20:42:45.983653Z
+  8d56bba7-24ae-5d91-a730-53aa53a1172f:
+    created_at: 2026-09-14T20:42:45.990275Z
+    description: Resolve all of a section's `vars` into a map (for ref/template use).
+    file_path: src/secretsmap.rs
+    function: resolve_vars
+    line: 286
+    token: 𓊆𓁌𓊆𓎕
+    updated_at: 2026-09-14T20:42:45.990275Z
+  214f8d4e-617c-5246-8a91-d4b79cad12ca:
+    created_at: 2026-09-14T20:42:45.988114Z
+    description: Find the parent store by stripping the last path segment from the
+    file_path: sdk/rust/src/resolve.rs
+    function: find_parent_store
+    line: 14
+    token: 𓐝𓎆𓄮𓀄
+    updated_at: 2026-09-14T20:42:45.988114Z
+  c8ae9c65-f662-51cb-9268-fc004532c507:
+    created_at: 2026-09-14T20:42:45.978451Z
+    description: Read the current store version.
+    file_path: sdk/rust/src/client.rs
+    function: version
+    line: 411
+    token: 𓁚𓊻𓈱𓇭
+    updated_at: 2026-09-14T20:42:45.978451Z
+  d323f985-d034-5147-bfe2-2e21bc3bc6fb:
+    created_at: 2026-09-14T20:42:45.989826Z
+    description: auto-generated pointer for public function state_dir
+    file_path: sdk/elixir/lib/direnv_config/store.ex
+    function: state_dir
+    line: 3
+    token: 𓋻𓐢𓁵𓏓
+    updated_at: 2026-09-14T20:42:45.989826Z
+  61f7a95b-500f-593e-860e-ccd61931cbb1:
+    created_at: 2026-09-14T20:42:45.989298Z
+    description: A non-secret, human-readable identifier (never the value).
+    file_path: src/target.rs
+    function: display
+    line: 29
+    token: 𓎍𓎹𓍏𓉤
+    updated_at: 2026-09-14T20:42:45.989298Z
+  d67eebf7-02b7-552c-be9d-bd7df420d59d:
+    created_at: 2026-09-14T20:42:45.983141Z
+    description: auto-generated pointer for public function bumpVersion
+    file_path: sdk/typescript/src/version.ts
+    function: bumpVersion
+    line: 15
+    token: 𓌀𓌢𓂇𓆨
+    updated_at: 2026-09-14T20:42:45.983141Z
+  5f3f576d-3c51-5741-a2f8-5c4a38ddddff:
+    created_at: 2026-09-14T20:42:45.989667Z
+    description: Format a comparison verdict line — `DC == k8  ns/secret/KEY`.
+    file_path: src/secretcmp.rs
+    function: verdict
+    line: 23
+    token: 𓏲𓌮𓀩𓎑
+    updated_at: 2026-09-14T20:42:45.989667Z
+  54ab2f45-661f-57f0-ab9e-9b6bf44c6542:
+    created_at: 2026-09-14T20:42:45.987970Z
+    description: auto-generated pointer for public function unset
+    file_path: sdk/elixir/lib/direnv_config/cli.ex
+    function: unset
+    line: 46
+    token: 𓃲𓇕𓅵𓂩
+    updated_at: 2026-09-14T20:42:45.987970Z
+  cec98215-af49-5857-9fb8-b9fdcf4c88e7:
+    created_at: 2026-09-14T20:42:45.984096Z
+    description: Get an integer value at the given path.
+    file_path: sdk/rust/src/client.rs
+    function: get_int
+    line: 386
+    token: 𓁜𓍎𓇲𓊴
+    updated_at: 2026-09-14T20:42:45.984096Z
+  420178ee-e900-5361-9bd7-dece9b83d5dd:
+    created_at: 2026-09-14T20:42:45.990367Z
+    description: auto-generated pointer for public function resolve_active
+    file_path: sdk/elixir/lib/direnv_config/resolve.ex
+    function: resolve_active
+    line: 9
+    token: 𓇻𓋃𓂍𓈨
+    updated_at: 2026-09-14T20:42:45.990367Z
+  d9527fef-9d3b-51a0-811d-84f7c4e544a5:
+    created_at: 2026-09-14T20:42:45.988304Z
+    description: auto-generated pointer for public function watchVersion
+    file_path: sdk/typescript/src/version.ts
+    function: watchVersion
+    line: 26
+    token: 𓎘𓂾𓆑𓊪
+    updated_at: 2026-09-14T20:42:45.988304Z
+  f829a9e6-480e-5076-a7ab-571d6b55c1e7:
+    created_at: 2026-09-14T20:42:45.986769Z
+    description: Walk up the parent chain, returning stores in order from
+    file_path: sdk/rust/src/resolve.rs
+    function: resolve_chain
+    line: 39
+    token: 𓈟𓌔𓎕𓍚
+    updated_at: 2026-09-14T20:42:45.986769Z
+  85f8d7f0-dd31-5fac-a47e-cdb23748249e:
+    created_at: 2026-09-14T20:42:45.977470Z
+    description: auto-generated pointer for public function deep_merge
+    file_path: sdk/elixir/lib/direnv_config/merge.ex
+    function: deep_merge
+    line: 7
+    token: 𓁗𓏊𓃎𓀾
+    updated_at: 2026-09-14T20:42:45.977470Z
+  392bd6f6-be07-5777-86a3-d2830996ef06:
+    created_at: 2026-09-14T20:42:45.983696Z
+    description: Resolve a path expression against a YAML Value tree.
+    file_path: src/yaml/path.rs
+    function: get_path
+    line: 78
+    token: 𓐀𓁊𓄺𓅎
+    updated_at: 2026-09-14T20:42:45.983696Z
+  8cd1903c-f1e9-54fe-bd08-3fab88501f22:
+    created_at: 2026-09-14T20:42:45.984704Z
+    description: Record a secret reveal.
+    file_path: src/audit.rs
+    function: record
+    line: 33
+    token: 𓍂𓇑𓃂𓃅
+    updated_at: 2026-09-14T20:42:45.984704Z
+  678e6996-b7ac-53a9-ae02-53ac2e27fb23:
+    created_at: 2026-09-14T20:42:45.984338Z
+    description: auto-generated pointer for public function deletePath
+    file_path: sdk/typescript/src/path.ts
+    function: deletePath
+    line: 171
+    token: 𓉜𓊜𓈶𓁊
+    updated_at: 2026-09-14T20:42:45.984338Z
+  fa70baef-3dc4-58e4-b513-a83399292950:
+    created_at: 2026-09-14T20:42:45.986993Z
+    description: Resolve connection settings from env vars, falling back to dc config.
+    file_path: src/infisical.rs
+    function: resolve
+    line: 48
+    token: 𓅌𓉜𓉏𓄤
+    updated_at: 2026-09-14T20:42:45.986993Z
+  51882016-0778-5b4c-a2d4-2240bf617c9e:
+    created_at: 2026-09-14T20:42:45.988880Z
+    description: Acquire an exclusive advisory lock for the given store directory.
+    file_path: src/store/lock.rs
+    function: lock_store
+    line: 20
+    token: 𓈌𓉋𓅿𓏖
+    updated_at: 2026-09-14T20:42:45.988880Z
+  4dfbaf56-d3a9-5d7b-8156-4415a1b45ed6:
+    created_at: 2026-09-14T20:42:45.972213Z
+    description: auto-generated pointer for public function deepMerge
+    file_path: sdk/typescript/src/merge.ts
+    function: deepMerge
+    line: 27
+    token: 𓂎𓋮𓄷𓊷
+    updated_at: 2026-09-14T20:42:45.972213Z
+  77165408-9d2c-51de-bf05-9b60de0a1db9:
+    created_at: 2026-09-14T20:42:45.978816Z
+    description: Scan all `dc_yaml` heredoc blocks in `lines`.
+    file_path: src/envrc/locator.rs
+    function: scan_blocks
+    line: 111
+    token: 𓎓𓇎𓆧𓋫
+    updated_at: 2026-09-14T20:42:45.978816Z
+  ec26c97d-c52d-527c-8f33-59ab1b485214:
+    created_at: 2026-09-14T20:42:45.988885Z
+    description: Atomically increment the store version.
+    file_path: sdk/rust/src/version.rs
+    function: bump_version
+    line: 22
+    token: 𓅭𓍓𓌡𓁇
+    updated_at: 2026-09-14T20:42:45.988885Z
+  52c747c7-4c4f-51f3-983d-b45d54de18de:
+    created_at: 2026-09-14T20:42:45.983414Z
+    description: Insert a YAML section relative to an anchor entry.
+    file_path: src/cmd/config.rs
+    function: setall
+    line: 340
+    token: 𓀡𓋸𓉑𓈼
+    updated_at: 2026-09-14T20:42:45.983414Z
+  cbeceb49-d655-5a75-93db-52ee82122d0c:
+    created_at: 2026-09-14T20:42:45.987581Z
+    description: Read a file and return all located keys across its heredoc blocks.
+    file_path: src/envrc/locator.rs
+    function: index_file
+    line: 224
+    token: 𓉙𓃦𓌽𓉞
+    updated_at: 2026-09-14T20:42:45.987581Z
+  718a2b86-d000-53ff-b9da-91a4c722dc29:
+    created_at: 2026-09-14T20:42:45.981689Z
+    description: auto-generated pointer for public function storePath
+    file_path: sdk/typescript/src/store.ts
+    function: storePath
+    line: 26
+    token: 𓈈𓊊𓋞𓄶
+    updated_at: 2026-09-14T20:42:45.981689Z
+  3bf59c8c-0769-5704-9e76-0cd3755817ef:
+    created_at: 2026-09-14T20:42:45.984632Z
+    description: auto-generated pointer for public function pathToHash
+    file_path: sdk/typescript/src/store.ts
+    function: pathToHash
+    line: 15
+    token: 𓈲𓋛𓁯𓌖
+    updated_at: 2026-09-14T20:42:45.984632Z
+  8549de1f-290f-5a25-8972-d2a869b29c8d:
+    created_at: 2026-09-14T20:42:45.989081Z
+    description: '`dc infisical compare <infisical-path> --to …` — resolve the local value via'
+    file_path: src/cmd/infisical.rs
+    function: compare
+    line: 18
+    token: 𓈡𓂡𓁵𓀖
+    updated_at: 2026-09-14T20:42:45.989081Z
+  7d77bb13-bf12-57d8-a98c-db298586fdad:
+    created_at: 2026-09-14T20:42:45.980364Z
+    description: auto-generated pointer for public function activePath
+    file_path: sdk/typescript/src/store.ts
+    function: activePath
+    line: 77
+    token: 𓀉𓃑𓌾𓉹
+    updated_at: 2026-09-14T20:42:45.980364Z
+  ab41dac5-03cd-5ae8-8744-991d5d7cdb10:
+    created_at: 2026-09-14T20:42:45.987773Z
+    description: Merge a slice of layers left-to-right.
+    file_path: src/yaml/merge.rs
+    function: deep_merge_multi
+    line: 68
+    token: 𓆽𓇆𓂯𓇂
+    updated_at: 2026-09-14T20:42:45.987773Z
+  388e4f95-d665-5e03-80ba-06bbfb39f381:
+    created_at: 2026-09-14T20:42:45.984471Z
+    description: True if the scalar is the `⛔` shadowed-secret sentinel.
+    file_path: src/secret.rs
+    function: is_restricted_sentinel
+    line: 44
+    token: 𓌱𓅒𓄢𓌎
+    updated_at: 2026-09-14T20:42:45.984471Z
+  2449d978-1229-5f17-9802-58e487d176cd:
+    created_at: 2026-09-14T20:42:45.976673Z
+    description: Check whether the store version has changed since `since`.
+    file_path: sdk/rust/src/client.rs
+    function: has_changed
+    line: 417
+    token: 𓂙𓏢𓎭𓏘
+    updated_at: 2026-09-14T20:42:45.976673Z
+  a303cc10-ebab-5c7a-ae4f-8d1713471f8a:
+    created_at: 2026-09-14T20:42:45.980861Z
+    description: auto-generated pointer for public function ensureConfig
+    file_path: sdk/typescript/src/store.ts
+    function: ensureConfig
+    line: 65
+    token: 𓅬𓍰𓏑𓂓
+    updated_at: 2026-09-14T20:42:45.980861Z
+  056160a2-caf7-5a56-90a6-036313295d75:
+    created_at: 2026-09-14T20:42:45.981827Z
+    description: Build a YAML subtree holding each secret encrypted into a `🔒:v1` token,
+    file_path: src/secret.rs
+    function: build_encrypted_tree
+    line: 102
+    token: 𓋠𓏊𓅦𓋨
+    updated_at: 2026-09-14T20:42:45.981827Z
+  8e45552c-d350-5a1f-b3d8-f541fe4db775:
+    created_at: 2026-09-14T20:42:45.985759Z
+    description: 'Convenience: load just the AEAD key.'
+    file_path: src/settings.rs
+    function: key
+    line: 75
+    token: 𓏚𓋮𓏋𓐆
+    updated_at: 2026-09-14T20:42:45.985759Z
+  62e40b73-d0b1-5647-abde-03bdea9a2a66:
+    created_at: 2026-09-14T20:42:45.972055Z
+    description: auto-generated pointer for public function stateDir
+    file_path: sdk/typescript/src/store.ts
+    function: stateDir
+    line: 8
+    token: 𓋃𓌫𓂄𓇈
+    updated_at: 2026-09-14T20:42:45.972055Z
+  113b5c57-92b0-5864-8c11-f68064331325:
+    created_at: 2026-09-14T20:42:45.988248Z
+    description: auto-generated pointer for public function active_path
+    file_path: sdk/elixir/lib/direnv_config/store.ex
+    function: active_path
+    line: 100
+    token: 𓎑𓌒𓀓𓏢
+    updated_at: 2026-09-14T20:42:45.988248Z
+  8bd594d0-a3ba-552c-9415-02c3d3228f62:
+    created_at: 2026-09-14T20:42:45.983896Z
+    description: auto-generated pointer for public function layerPath
+    file_path: sdk/typescript/src/store.ts
+    function: layerPath
+    line: 72
+    token: 𓈙𓌀𓃔𓃌
+    updated_at: 2026-09-14T20:42:45.983896Z
+  88a71b6a-968e-5336-b27a-520e6834532c:
+    created_at: 2026-09-14T20:42:45.985251Z
+    description: Read and parse the store's `.meta` YAML file.
+    file_path: src/store/meta.rs
+    function: read_meta
+    line: 23
+    token: 𓆱𓈨𓅾𓎓
+    updated_at: 2026-09-14T20:42:45.985251Z
+  8615ba30-199b-571e-b163-d0566db17984:
+    created_at: 2026-09-14T20:42:45.987708Z
+    description: auto-generated pointer for public function get_string
+    file_path: sdk/elixir/lib/direnv_config/client.ex
+    function: get_string
+    line: 65
+    token: 𓏼𓌘𓉤𓂩
+    updated_at: 2026-09-14T20:42:45.987708Z
+  7c69373a-ba94-5f67-a8f7-c3eb61071220:
+    created_at: 2026-09-14T20:42:45.990254Z
+    description: Split an ingested YAML tree into a plain (non-secret) tree and a list of
+    file_path: src/secret.rs
+    function: split_secrets
+    line: 58
+    token: 𓈜𓀦𓏨𓌔
+    updated_at: 2026-09-14T20:42:45.990254Z
+  0facd69a-5b44-5b3a-ac6b-1072865a6f83:
+    created_at: 2026-09-14T20:42:45.980533Z
+    description: Discover `.envrc*` files in `dir` (non-recursive).
+    file_path: src/envrc/locator.rs
+    function: envrc_files
+    line: 236
+    token: 𓍹𓐏𓎦𓀇
+    updated_at: 2026-09-14T20:42:45.980533Z
+  c58aee96-3224-521a-b35c-7f9212ea7b1d:
+    created_at: 2026-09-14T20:42:45.981705Z
+    description: Load a YAML layer file for a read-modify-write.
+    file_path: src/store/layout.rs
+    function: load_layer
+    line: 70
+    token: 𓌩𓏲𓁙𓃷
+    updated_at: 2026-09-14T20:42:45.981705Z
+  9fa206fe-655f-5456-a904-7eb944339b24:
+    created_at: 2026-09-14T20:42:45.981680Z
+    description: auto-generated pointer for public function deepMergeMulti
+    file_path: sdk/typescript/src/merge.ts
+    function: deepMergeMulti
+    line: 45
+    token: 𓄞𓎰𓅬𓀿
+    updated_at: 2026-09-14T20:42:45.981680Z
+  2f5b0425-0e32-5254-9d63-d204d5034e0e:
+    created_at: 2026-09-14T20:42:45.987825Z
+    description: auto-generated pointer for public function secret_exists
+    file_path: src/kube.rs
+    function: secret_exists
+    line: 30
+    token: 𓂖𓎔𓎨𓋨
+    updated_at: 2026-09-14T20:42:45.987825Z
+  2e4e8216-2d32-5628-878d-a3b7f18b7e4d:
+    created_at: 2026-09-14T20:42:45.975591Z
+    description: Decode a base64 (standard alphabet) string — used for the key material in settings.yaml.
+    file_path: src/crypto.rs
+    function: b64_standard_decode
+    line: 94
+    token: 𓋤𓇃𓈸𓐊
+    updated_at: 2026-09-14T20:42:45.975591Z
+  1562f846-5aef-5adc-b555-0e8e99543d6d:
+    created_at: 2026-09-14T20:42:45.980773Z
+    description: Format a verdict when the remote side is missing.
+    file_path: src/secretcmp.rs
+    function: missing
+    line: 30
+    token: 𓀿𓉄𓐪𓐝
+    updated_at: 2026-09-14T20:42:45.980773Z
+  124da5a9-20b5-5060-a8bc-797fade5a6ec:
+    created_at: 2026-09-14T20:42:45.972041Z
+    description: The concrete (non-wildcard) prefix of the key path, without the
+    file_path: src/yaml/flatten.rs
+    function: prefix_path
+    line: 31
+    token: 𓃙𓎣𓈅𓈨
+    updated_at: 2026-09-14T20:42:45.972041Z
+  e127d398-9ed0-5897-a967-85f97b5fba85:
+    created_at: 2026-09-14T20:42:45.972340Z
+    description: auto-generated pointer for public function getPath
+    file_path: sdk/typescript/src/path.ts
+    function: getPath
+    line: 86
+    token: 𓈫𓇾𓎳𓍍
+    updated_at: 2026-09-14T20:42:45.972340Z
+  b7566275-7b61-5e63-b429-5c31f3bf5776:
+    created_at: 2026-09-14T20:42:45.984458Z
+    description: Read the current version from the store's `.version` file.
+    file_path: sdk/rust/src/version.rs
+    function: read_version
+    line: 9
+    token: 𓀫𓉡𓅉𓌴
+    updated_at: 2026-09-14T20:42:45.984458Z
+  9d48f007-04d9-5e96-a538-ea49624fad2d:
+    created_at: 2026-09-14T20:42:45.978215Z
+    description: Move a secret into the shadow store and leave `⛔` sentinels behind in both
+    file_path: src/shadow.rs
+    function: secure
+    line: 85
+    token: 𓊧𓏷𓌮𓈔
+    updated_at: 2026-09-14T20:42:45.978215Z
+  '0ba21c4e-7228-51fa-bb08-de0b5e9656ba':
+    created_at: 2026-09-14T20:42:45.981331Z
+    description: Parse the sensitivity tier from a token without decrypting it.
+    file_path: src/crypto.rs
+    function: token_tier
+    line: 39
+    token: 𓐝𓍵𓅑𓃃
+    updated_at: 2026-09-14T20:42:45.981331Z
+  1c66b3a7-e812-5740-a1cd-1782021099e7:
+    created_at: 2026-09-14T20:42:45.975079Z
+    description: Shared helper used by both `dc compare` (F) and `dc infisical compare` (G).
+    file_path: src/cmd/compare.rs
+    function: compare_local_to_targets
+    line: 24
+    token: 𓈀𓉭𓁨𓋐
+    updated_at: 2026-09-14T20:42:45.975079Z
+  95a0a47c-5958-5427-a4b8-0ffc7796b66e:
+    created_at: 2026-09-14T20:42:45.971930Z
+    description: Redaction placeholder shown in place of a secret value, annotated by tier.
+    file_path: src/secret.rs
+    function: redaction_for
+    line: 50
+    token: 𓎖𓐂𓈇𓅲
+    updated_at: 2026-09-14T20:42:45.971930Z
+  e684232c-651d-549a-b679-874d4c287bec:
+    created_at: 2026-09-14T20:42:45.983621Z
+    description: Create each folder segment of `path` (idempotent — conflicts ignored).
+    file_path: src/infisical.rs
+    function: ensure_folder_path
+    line: 261
+    token: 𓃽𓈏𓉏𓊤
+    updated_at: 2026-09-14T20:42:45.983621Z
+  0f0cc678-fd73-5eb3-8bbd-18e6de9803be:
+    created_at: 2026-09-14T20:42:45.982058Z
+    description: auto-generated pointer for public function get!
+    file_path: sdk/elixir/lib/direnv_config/client.ex
+    function: get!
+    line: 56
+    token: 𓅉𓄩𓐚𓉦
+    updated_at: 2026-09-14T20:42:45.982058Z
+  9b4fd221-37cf-5459-b7ce-03755d953af1:
+    created_at: 2026-09-14T20:42:45.987742Z
+    description: auto-generated pointer for public function handle_info
+    file_path: sdk/elixir/lib/direnv_config/watcher.ex
+    function: handle_info
+    line: 37
+    token: 𓂐𓈫𓏁𓈇
+    updated_at: 2026-09-14T20:42:45.987742Z
+  8c2833d4-dc41-5159-ad50-108945b0b8a6:
+    created_at: 2026-09-14T20:42:45.989341Z
+    description: auto-generated pointer for public function list_configs
+    file_path: sdk/elixir/lib/direnv_config/client.ex
+    function: list_configs
+    line: 100
+    token: 𓄤𓋐𓅤𓃒
+    updated_at: 2026-09-14T20:42:45.989341Z
