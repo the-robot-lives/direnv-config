@@ -6,7 +6,6 @@
 
 use anyhow::{anyhow, bail, Result};
 use serde_yaml::Value;
-use std::io::{IsTerminal, Write};
 
 enum PushTarget {
     Infisical { path: String },
@@ -54,17 +53,6 @@ fn remote_key(abs_path: &str) -> String {
     last.chars()
         .map(|c| if c.is_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
         .collect()
-}
-
-fn confirm(prompt: &str) -> Result<bool> {
-    if !std::io::stdin().is_terminal() {
-        bail!("cannot confirm: stdin is not a terminal — re-run with --yes to apply non-interactively");
-    }
-    eprint!("{prompt} [y/N] ");
-    std::io::stderr().flush().ok();
-    let mut buf = String::new();
-    std::io::stdin().read_line(&mut buf)?;
-    Ok(matches!(buf.trim().to_lowercase().as_str(), "y" | "yes"))
 }
 
 // ⟦𓆔𓄞𓋑𓍉⟧ run :: auto-generated pointer for public function run
@@ -130,7 +118,7 @@ pub fn run(subject: &str, section_path: &str, tos: &[String], dry_run: bool, yes
                 if dry_run || !changes {
                     continue;
                 }
-                if !yes && !confirm(&format!("Push {} secret(s) to infisical {path}?", plan.len()))? {
+                if !yes && !crate::cmd::config::confirm(&format!("Push {} secret(s) to infisical {path}?", plan.len()))? {
                     eprintln!("aborted");
                     continue;
                 }
@@ -157,7 +145,7 @@ pub fn run(subject: &str, section_path: &str, tos: &[String], dry_run: bool, yes
                     continue;
                 }
                 if !yes
-                    && !confirm(&format!("Push {} secret(s) to k8 {namespace}/{secret}?", plan.len()))?
+                    && !crate::cmd::config::confirm(&format!("Push {} secret(s) to k8 {namespace}/{secret}?", plan.len()))?
                 {
                     eprintln!("aborted");
                     continue;

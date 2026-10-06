@@ -176,14 +176,21 @@ fn acquire_value(value: Option<&str>, from: Option<&str>, stdin: bool) -> Result
     Ok(buf.trim_end_matches('\n').to_string())
 }
 
-fn confirm(prompt: &str) -> Result<bool> {
-    if !std::io::stdin().is_terminal() {
+/// Ask a y/N question on stdin. Errors (instead of reading EOF as "no") when
+/// stdin is not a terminal, so non-interactive callers must pass `--yes`.
+pub(crate) fn confirm(prompt: &str) -> Result<bool> {
+    let stdin = std::io::stdin();
+    confirm_with(prompt, stdin.is_terminal(), &mut stdin.lock())
+}
+
+fn confirm_with(prompt: &str, is_tty: bool, input: &mut impl std::io::BufRead) -> Result<bool> {
+    if !is_tty {
         bail!("cannot confirm: stdin is not a terminal — re-run with --yes to apply non-interactively");
     }
     eprint!("{prompt} [y/N] ");
     std::io::stderr().flush().ok();
     let mut buf = String::new();
-    std::io::stdin().read_line(&mut buf)?;
+    input.read_line(&mut buf)?;
     Ok(matches!(buf.trim().to_lowercase().as_str(), "y" | "yes"))
 }
 
@@ -235,27 +242,30 @@ pub(crate) fn write_sentinel(subject: &str, path: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// Re-ingest every `dc_yaml … <subject>` heredoc in `file` into the store, the
-/// same way direnv sourcing `.envrc.dc` would. Without this, `dc get` and
+/// Re-ingest every `dc_yaml … <subject>` heredoc across all `.envrc*` files in
+/// the source dir into the store (same file order as `envrc_files`), the way
+/// direnv sourcing would. Without this, `dc get` and
 /// `infisical-populate-secrets` keep serving the pre-edit value until the shell
-/// re-sources the file.
-fn refresh_store(file: &Path, subject: &str) -> Result<()> {
+/// re-sources the files.
+fn refresh_store(subject: &str) -> Result<()> {
     let store = crate::store::find_current_store()?;
     let _lock = crate::store::lock_store(&store)?;
-    let lines = read_lines(file)?;
-    // `--if-missing` blocks seed the store once and are store-owned afterwards
-    // (e.g. generated `auto` values); re-ingesting would clobber them.
-    let blocks = locator::scan_blocks(&lines);
-    for block in blocks
-        .iter()
-        .filter(|b| b.subject == subject && !lines[b.start_line].contains("--if-missing"))
-    {
-        let body = lines[block.body.clone()].join("\n");
-        let input: serde_yaml::Value = serde_yaml::from_str(&body)?;
-        let (plain, secrets) = crate::secret::split_secrets(&input);
-        let key = if secrets.is_empty() { None } else { Some(crate::settings::key()?) };
-        let layer = block.layer.as_deref().unwrap_or("base");
-        crate::cmd::yaml::apply(&store, subject, layer, &plain, &secrets, key.as_ref(), false, None)?;
+    for file in locator::envrc_files(&source_dir()?) {
+        let lines = read_lines(&file)?;
+        // `--if-missing` blocks seed the store once and are store-owned afterwards
+        // (e.g. generated `auto` values); re-ingesting would clobber them.
+        let blocks = locator::scan_blocks(&lines);
+        for block in blocks
+            .iter()
+            .filter(|b| b.subject == subject && !lines[b.start_line].contains("--if-missing"))
+        {
+            let body = lines[block.body.clone()].join("\n");
+            let input: serde_yaml::Value = serde_yaml::from_str(&body)?;
+            let (plain, secrets) = crate::secret::split_secrets(&input);
+            let key = if secrets.is_empty() { None } else { Some(crate::settings::key()?) };
+            let layer = block.layer.as_deref().unwrap_or("base");
+            crate::cmd::yaml::apply(&store, subject, layer, &plain, &secrets, key.as_ref(), false, None)?;
+        }
     }
     crate::store::resolve::resolve_active(&store, subject)?;
     crate::store::meta::update_configs_list(&store)?;
@@ -330,7 +340,7 @@ pub fn set(
     lines = splice_set(&lines, loc, new_line);
     write_lines(&loc.file, &lines)?;
     println!("updated {}:{}", loc.file.display(), loc.key_line + 1);
-    refresh_store(&loc.file, subject)?;
+    refresh_store(subject)?;
     Ok(())
 }
 
@@ -360,7 +370,7 @@ fn set_errata(subject: &str, path: &str, plaintext: &str, encrypted: bool, yes: 
         lines.insert(idx, new_line);
         write_lines(&f, &lines)?;
         println!("inserted {subject} {path} at {}:{}", f.display(), idx + 1);
-        refresh_store(&f, subject)?;
+        refresh_store(subject)?;
         return Ok(());
     }
     bail!("no `dc_yaml … {subject}` block found in any .envrc* file — use `dc config setall`")
@@ -422,6 +432,7 @@ pub fn setall(
         lines = out;
         write_lines(&f, &lines)?;
         println!("inserted section at {}:{}", f.display(), insert_at + 1);
+        refresh_store(layer_subject)?;
         return Ok(());
     }
     bail!("anchor `{anchor_subject} {anchor_path}` not found in any .envrc* file")
@@ -437,11 +448,14 @@ mod tests {
     #[test]
     fn confirm_refuses_non_terminal_stdin() {
         // A non-interactive caller must get an error, not a silent "no" + exit 0.
-        if std::io::stdin().is_terminal() {
-            return;
-        }
-        let err = confirm("Apply?").unwrap_err().to_string();
+        let err = confirm_with("Apply?", false, &mut "y\n".as_bytes()).unwrap_err().to_string();
         assert!(err.contains("--yes"), "{err}");
+    }
+
+    #[test]
+    fn confirm_reads_answer_on_terminal() {
+        assert!(confirm_with("Apply?", true, &mut "yes\n".as_bytes()).unwrap());
+        assert!(!confirm_with("Apply?", true, &mut "\n".as_bytes()).unwrap());
     }
 
     fn lines(s: &str) -> Vec<String> {
