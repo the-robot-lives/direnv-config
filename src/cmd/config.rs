@@ -5,7 +5,7 @@
 //! preserving all surrounding formatting/comments via line splicing.
 
 use anyhow::{bail, Result};
-use std::io::{Read, Write};
+use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 
 use crate::envrc::locator::{self, KeyLoc};
@@ -177,6 +177,9 @@ fn acquire_value(value: Option<&str>, from: Option<&str>, stdin: bool) -> Result
 }
 
 fn confirm(prompt: &str) -> Result<bool> {
+    if !std::io::stdin().is_terminal() {
+        bail!("cannot confirm: stdin is not a terminal — re-run with --yes to apply non-interactively");
+    }
     eprint!("{prompt} [y/N] ");
     std::io::stderr().flush().ok();
     let mut buf = String::new();
@@ -230,6 +233,33 @@ pub(crate) fn write_sentinel(subject: &str, path: &str) -> Result<bool> {
     let out = splice_set(&lines, loc, new_line);
     write_lines(&loc.file, &out)?;
     Ok(true)
+}
+
+/// Re-ingest every `dc_yaml … <subject>` heredoc in `file` into the store, the
+/// same way direnv sourcing `.envrc.dc` would. Without this, `dc get` and
+/// `infisical-populate-secrets` keep serving the pre-edit value until the shell
+/// re-sources the file.
+fn refresh_store(file: &Path, subject: &str) -> Result<()> {
+    let store = crate::store::find_current_store()?;
+    let _lock = crate::store::lock_store(&store)?;
+    let lines = read_lines(file)?;
+    // `--if-missing` blocks seed the store once and are store-owned afterwards
+    // (e.g. generated `auto` values); re-ingesting would clobber them.
+    let blocks = locator::scan_blocks(&lines);
+    for block in blocks
+        .iter()
+        .filter(|b| b.subject == subject && !lines[b.start_line].contains("--if-missing"))
+    {
+        let body = lines[block.body.clone()].join("\n");
+        let input: serde_yaml::Value = serde_yaml::from_str(&body)?;
+        let (plain, secrets) = crate::secret::split_secrets(&input);
+        let key = if secrets.is_empty() { None } else { Some(crate::settings::key()?) };
+        let layer = block.layer.as_deref().unwrap_or("base");
+        crate::cmd::yaml::apply(&store, subject, layer, &plain, &secrets, key.as_ref(), false, None)?;
+    }
+    crate::store::resolve::resolve_active(&store, subject)?;
+    crate::store::meta::update_configs_list(&store)?;
+    Ok(())
 }
 
 // ⟦𓀞𓎩𓋴𓇨⟧ get :: auto-generated pointer for public function get
@@ -295,12 +325,12 @@ pub fn set(
     eprintln!("Update {} {} in {}:{}", subject, path, loc.file.display(), loc.key_line + 1);
     preview(&lines, loc.key_line, if loc.is_block_scalar { loc.value_end } else { loc.key_line }, Some(&new_display));
     if !yes && !confirm("Apply this change?")? {
-        eprintln!("aborted");
-        return Ok(());
+        bail!("aborted — no changes written");
     }
     lines = splice_set(&lines, loc, new_line);
     write_lines(&loc.file, &lines)?;
     println!("updated {}:{}", loc.file.display(), loc.key_line + 1);
+    refresh_store(&loc.file, subject)?;
     Ok(())
 }
 
@@ -325,12 +355,12 @@ fn set_errata(subject: &str, path: &str, plaintext: &str, encrypted: bool, yes: 
         eprintln!("Insert {subject} {path} into {}:{}", f.display(), idx + 1);
         preview(&lines, idx.saturating_sub(1), idx.saturating_sub(1), Some(&display));
         if !yes && !confirm("Insert this entry?")? {
-            eprintln!("aborted");
-            return Ok(());
+            bail!("aborted — no changes written");
         }
         lines.insert(idx, new_line);
         write_lines(&f, &lines)?;
         println!("inserted {subject} {path} at {}:{}", f.display(), idx + 1);
+        refresh_store(&f, subject)?;
         return Ok(());
     }
     bail!("no `dc_yaml … {subject}` block found in any .envrc* file — use `dc config setall`")
@@ -384,8 +414,7 @@ pub fn setall(
             eprintln!("  ✚  {l}");
         }
         if !yes && !confirm("Insert this section?")? {
-            eprintln!("aborted");
-            return Ok(());
+            bail!("aborted — no changes written");
         }
         let mut out = lines[..insert_at].to_vec();
         out.extend(new_lines);
@@ -404,6 +433,16 @@ mod tests {
     use crate::envrc::locator::{index_block, scan_blocks};
 
     const KEY: [u8; 32] = [5u8; 32];
+
+    #[test]
+    fn confirm_refuses_non_terminal_stdin() {
+        // A non-interactive caller must get an error, not a silent "no" + exit 0.
+        if std::io::stdin().is_terminal() {
+            return;
+        }
+        let err = confirm("Apply?").unwrap_err().to_string();
+        assert!(err.contains("--yes"), "{err}");
+    }
 
     fn lines(s: &str) -> Vec<String> {
         s.lines().map(|l| l.to_string()).collect()

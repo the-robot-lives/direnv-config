@@ -6,7 +6,7 @@
 
 use anyhow::{anyhow, bail, Result};
 use serde_yaml::Value;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 
 enum PushTarget {
     Infisical { path: String },
@@ -57,6 +57,9 @@ fn remote_key(abs_path: &str) -> String {
 }
 
 fn confirm(prompt: &str) -> Result<bool> {
+    if !std::io::stdin().is_terminal() {
+        bail!("cannot confirm: stdin is not a terminal — re-run with --yes to apply non-interactively");
+    }
     eprint!("{prompt} [y/N] ");
     std::io::stderr().flush().ok();
     let mut buf = String::new();
