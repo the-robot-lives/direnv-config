@@ -18,20 +18,16 @@ pub fn find_parent_store(store: &Path) -> Option<PathBuf> {
     // Progressively strip the last `-segment` from the store name
     let mut name = store_name.as_str();
     loop {
-        match name.rfind('-') {
-            Some(pos) => {
-                name = &name[..pos];
-                if name.is_empty() {
-                    return None;
-                }
-                let candidate = state.join(name);
-                if candidate.exists() && candidate.join(".meta").exists() {
-                    return Some(candidate);
-                }
-                // Not found — keep stripping
-            }
-            None => return None,
+        let pos = name.rfind('-')?;
+        name = &name[..pos];
+        if name.is_empty() {
+            return None;
         }
+        let candidate = state.join(name);
+        if candidate.exists() && candidate.join(".meta").exists() {
+            return Some(candidate);
+        }
+        // Not found — keep stripping
     }
 }
 

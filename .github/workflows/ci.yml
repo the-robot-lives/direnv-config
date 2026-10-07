@@ -19,8 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # Pinned: floating `stable` adds clippy lints each release and turns CI red unprompted.
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.99.0"
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@cargo-llvm-cov
@@ -38,8 +40,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # Pinned: floating `stable` adds clippy lints each release and turns CI red unprompted.
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.99.0"
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets -- -D warnings
@@ -52,8 +56,10 @@ jobs:
         working-directory: sdk/rust
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # Pinned: floating `stable` adds clippy lints each release and turns CI red unprompted.
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.99.0"
           components: clippy, llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
         with:
