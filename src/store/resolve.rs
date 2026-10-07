@@ -18,20 +18,16 @@ pub fn find_parent_store(store: &Path) -> Option<PathBuf> {
     // Progressively strip the last `-segment` from the store name
     let mut name = store_name.as_str();
     loop {
-        match name.rfind('-') {
-            Some(pos) => {
-                name = &name[..pos];
-                if name.is_empty() {
-                    return None;
-                }
-                let candidate = state.join(name);
-                if candidate.exists() && candidate.join(".meta").exists() {
-                    return Some(candidate);
-                }
-                // Not found — keep stripping
-            }
-            None => return None,
+        let pos = name.rfind('-')?;
+        name = &name[..pos];
+        if name.is_empty() {
+            return None;
         }
+        let candidate = state.join(name);
+        if candidate.exists() && candidate.join(".meta").exists() {
+            return Some(candidate);
+        }
+        // Not found — keep stripping
     }
 }
 
@@ -119,12 +115,10 @@ fn read_layer_config(store: &Path, name: &str) -> std::collections::HashMap<Stri
     };
 
     let mut map = std::collections::HashMap::new();
-    if let Some(layers_val) = crate::yaml::path::get_path(&base, LAYERS_CONFIG_PATH) {
-        if let Value::Mapping(m) = layers_val {
-            for (k, v) in m {
-                if let (Value::String(layer_name), Some(weight)) = (k, v.as_i64()) {
-                    map.insert(layer_name, weight);
-                }
+    if let Some(Value::Mapping(m)) = crate::yaml::path::get_path(&base, LAYERS_CONFIG_PATH) {
+        for (k, v) in m {
+            if let (Value::String(layer_name), Some(weight)) = (k, v.as_i64()) {
+                map.insert(layer_name, weight);
             }
         }
     }
@@ -147,7 +141,7 @@ fn build_layer_order(store: &Path, name: &str, env_name: &str) -> Vec<String> {
     }
 
     let mut entries: Vec<(String, i64)> = weight_map.into_iter().collect();
-    entries.sort_by(|a, b| b.1.cmp(&a.1));
+    entries.sort_by_key(|e| std::cmp::Reverse(e.1));
 
     entries.into_iter().map(|(name, _)| name).collect()
 }

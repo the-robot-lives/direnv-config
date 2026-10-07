@@ -10,6 +10,8 @@ defmodule DirenvConfig.MixProject do
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      # Acceptance 52.41% on 2026-10-07 → gate 47.
+      test_coverage: [summary: [threshold: 47]],
       package: package(),
       description: "Elixir SDK for direnv-config (dc) — read and write YAML-backed directory configuration",
       source_url: "https://github.com/noizu/direnv-config",

@@ -291,18 +291,15 @@ impl Backend for CliBackend {
 
 /// Operating mode for the client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum DcMode {
     /// Direct filesystem access (default).
+    #[default]
     Native,
     /// Shell out to the `dc` CLI binary.
     Cli,
 }
 
-impl Default for DcMode {
-    fn default() -> Self {
-        Self::Native
-    }
-}
 
 /// Options for constructing a [`DcClient`].
 #[derive(Debug, Clone)]

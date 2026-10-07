@@ -20,12 +20,12 @@ fn generate(hex: bool, base64_mode: bool, length: usize) -> String {
     let mut rng = rand::thread_rng();
 
     if hex {
-        let byte_count = (length + 1) / 2;
+        let byte_count = length.div_ceil(2);
         let bytes: Vec<u8> = (0..byte_count).map(|_| rng.gen()).collect();
         let s: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
         s[..length].to_string()
     } else if base64_mode {
-        let byte_count = (length * 3 + 3) / 4;
+        let byte_count = (length * 3).div_ceil(4);
         let bytes: Vec<u8> = (0..byte_count).map(|_| rng.gen()).collect();
         use base64::Engine;
         let s = base64::engine::general_purpose::STANDARD.encode(&bytes);

@@ -11,7 +11,6 @@ use std::io::Read;
 ///   "🎲 db_pass 🔒 hex 32"          → hex, 32 chars, encrypted
 ///   "🎲 api_key 🔒 base128 128"     → base128 (alphanumeric), 128 chars, encrypted
 ///   "🎲 counter int 6"              → decimal digits, 6 chars, unencrypted
-
 // ⟦𓍥𓃮𓉸𓈄⟧ run :: auto-generated pointer for public function run
 pub fn run(file: Option<&str>, stdin_flag: bool, inline: bool, tier: u8) -> Result<()> {
     let input = read_input(file, stdin_flag)?;
@@ -107,13 +106,13 @@ fn generate(encoding: &str, length: usize) -> String {
 
     match encoding {
         "hex" => {
-            let byte_count = (length + 1) / 2;
+            let byte_count = length.div_ceil(2);
             let bytes: Vec<u8> = (0..byte_count).map(|_| rng.gen()).collect();
             let s: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
             s[..length].to_string()
         }
         "base64" => {
-            let byte_count = (length * 3 + 3) / 4;
+            let byte_count = (length * 3).div_ceil(4);
             let bytes: Vec<u8> = (0..byte_count).map(|_| rng.gen()).collect();
             use base64::Engine;
             let s = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&bytes);
@@ -124,7 +123,8 @@ fn generate(encoding: &str, length: usize) -> String {
                 .map(|_| rng.gen_range(0..10).to_string())
                 .collect()
         }
-        "base128" | _ => {
+        // "base128" and any unrecognised format
+        _ => {
             const CHARSET: &[u8] =
                 b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
             (0..length)

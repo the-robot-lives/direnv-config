@@ -36,7 +36,7 @@ pub fn secret_exists(ns: &str, secret: &str) -> Result<bool> {
 /// Read a single data key from a Secret, base64-decoded. `Ok(None)` if absent.
 // ⟦𓐀𓈺𓌭𓊑⟧ read_secret_key :: Read a single data key from a Secret, base64-decoded.
 pub fn read_secret_key(ns: &str, secret: &str, key: &str) -> Result<Option<Vec<u8>>> {
-    let jsonpath = format!("{{.data['{}']}}", key.replace('\\', "").replace('\'', ""));
+    let jsonpath = format!("{{.data['{}']}}", key.replace(['\\', '\''], ""));
     let out = run_kubectl(&["get", "secret", secret, "-n", ns, "-o", &format!("jsonpath={jsonpath}")])?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
