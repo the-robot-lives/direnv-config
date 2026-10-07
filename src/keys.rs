@@ -48,7 +48,7 @@ impl KeySource {
 }
 
 /// Resolve the key-file path: `$DC_KEYS_FILE` → `$XDG_CONFIG_HOME/direnv-config/keys` → `~/.config/direnv-config/keys`.
-// ⟦𓇑𓎕𓊽𓆑⟧ keys_path :: Resolve the key-file path.
+// <REMOVED UUID HERE> keys_path :: Resolve the key-file path.
 pub fn keys_path() -> PathBuf {
     if let Ok(p) = std::env::var("DC_KEYS_FILE") {
         return PathBuf::from(p);
@@ -62,7 +62,7 @@ pub fn keys_path() -> PathBuf {
 }
 
 /// Parse + validate a key file's contents.
-// ⟦𓃓𓆣𓍝𓄿⟧ parse_key_file :: Parse + validate a key file's contents.
+// <REMOVED UUID HERE> parse_key_file :: Parse + validate a key file's contents.
 fn parse_key_file(raw: &str, path: &Path) -> Result<[u8; 32]> {
     let parsed: KeyFile = serde_yaml::from_str(raw)
         .with_context(|| format!("parsing key file {}", path.display()))?;
@@ -89,7 +89,7 @@ fn decode_key_b64(b64: &str) -> Result<[u8; 32]> {
 }
 
 /// Load a key file from an explicit path (0600 expected; mode is advisory here, enforced by `dc keys lock`).
-// ⟦𓎛𓍼𓋴𓁷⟧ load_key_file :: Load a key file from an explicit path.
+// <REMOVED UUID HERE> load_key_file :: Load a key file from an explicit path.
 pub fn load_key_file(path: &Path) -> Result<[u8; 32]> {
     let raw = std::fs::read_to_string(path).with_context(|| {
         format!(
@@ -101,7 +101,7 @@ pub fn load_key_file(path: &Path) -> Result<[u8; 32]> {
 }
 
 /// Write a key file with 0600 permissions (atomic temp+rename).
-// ⟦𓍻𓊪𓇋𓎏⟧ write_key_file :: Write a key file with 0600 permissions (atomic temp+rename).
+// <REMOVED UUID HERE> write_key_file :: Write a key file with 0600 permissions (atomic temp+rename).
 pub fn write_key_file(path: &Path, key: &[u8; 32]) -> Result<()> {
     use base64::Engine;
     let b64 = base64::engine::general_purpose::STANDARD.encode(key);
@@ -125,7 +125,7 @@ pub fn write_key_file(path: &Path, key: &[u8; 32]) -> Result<()> {
 }
 
 /// Read the legacy key from settings.yaml, if present.
-// ⟦𓊨𓄗𓇢𓆰⟧ legacy_key :: Read the legacy key from settings.yaml, if present.
+// <REMOVED UUID HERE> legacy_key :: Read the legacy key from settings.yaml, if present.
 pub fn legacy_key() -> Result<Option<[u8; 32]>> {
     let path = crate::settings::settings_path();
     let raw = match std::fs::read_to_string(&path) {
@@ -141,7 +141,7 @@ pub fn legacy_key() -> Result<Option<[u8; 32]>> {
 }
 
 /// Resolve the active key: external key file wins exclusively; otherwise legacy settings.yaml.
-// ⟦𓁽𓍺𓎞𓋹⟧ resolve :: Resolve the active key.
+// <REMOVED UUID HERE> resolve :: Resolve the active key.
 pub fn resolve() -> Result<KeySource> {
     let kpath = keys_path();
     if kpath.exists() {

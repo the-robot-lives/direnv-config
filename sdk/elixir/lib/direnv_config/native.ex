@@ -1,6 +1,6 @@
 defmodule DirenvConfig.Native do
   @spec get(String.t(), String.t(), String.t() | nil) :: {:ok, term()} | :error
-  # ⟦𓉻𓇤𓏷𓂰⟧ get :: auto-generated pointer for public function get
+  # <REMOVED UUID HERE> get :: auto-generated pointer for public function get
   def get(store_path, config, path \\ nil) do
     active_file = Path.join([store_path, config, ".active"])
 
@@ -14,7 +14,7 @@ defmodule DirenvConfig.Native do
   end
 
   @spec list_configs(String.t()) :: {:ok, [String.t()]} | :error
-  # ⟦𓉹𓋠𓌋𓄮⟧ list_configs :: auto-generated pointer for public function list_configs
+  # <REMOVED UUID HERE> list_configs :: auto-generated pointer for public function list_configs
   def list_configs(store_path) do
     meta_file = Path.join(store_path, ".meta")
 
@@ -29,7 +29,7 @@ defmodule DirenvConfig.Native do
 
   @spec set(String.t(), String.t(), String.t(), term(), String.t(), boolean()) ::
           :ok | {:error, term()}
-  # ⟦𓇓𓃓𓅧𓂠⟧ set :: auto-generated pointer for public function set
+  # <REMOVED UUID HERE> set :: auto-generated pointer for public function set
   def set(store_path, config, key, value, layer \\ "local", no_bump \\ false) do
     ensure_store_and_config(store_path, config)
     layer_file = DirenvConfig.Store.layer_path(store_path, config, layer)
@@ -56,7 +56,7 @@ defmodule DirenvConfig.Native do
 
   @spec unset(String.t(), String.t(), [String.t()], String.t(), boolean()) ::
           :ok | {:error, term()}
-  # ⟦𓐉𓂓𓇂𓎉⟧ unset :: auto-generated pointer for public function unset
+  # <REMOVED UUID HERE> unset :: auto-generated pointer for public function unset
   def unset(store_path, config, keys, layer \\ "local", no_bump \\ false) do
     layer_file = DirenvConfig.Store.layer_path(store_path, config, layer)
 
@@ -91,7 +91,7 @@ defmodule DirenvConfig.Native do
   end
 
   @spec bump(String.t()) :: {:ok, non_neg_integer()}
-  # ⟦𓍞𓈣𓉏𓈁⟧ bump :: auto-generated pointer for public function bump
+  # <REMOVED UUID HERE> bump :: auto-generated pointer for public function bump
   def bump(store_path) do
     DirenvConfig.Version.bump(store_path)
   end

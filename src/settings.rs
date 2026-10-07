@@ -25,7 +25,7 @@ pub struct Settings {
 }
 
 /// Resolve the settings file path: `$DC_SETTINGS` → `$XDG_CONFIG_HOME/direnv-config/settings.yaml` → `~/.config/direnv-config/settings.yaml`.
-// ⟦𓌂𓄬𓋿𓎱⟧ settings_path :: Resolve the settings file path: `$DC_SETTINGS` → `$XDG_CONFIG_HOME/direnv-config/settings.yaml` → `~
+// <REMOVED UUID HERE> settings_path :: Resolve the settings file path: `$DC_SETTINGS` → `$XDG_CONFIG_HOME/direnv-config/settings.yaml` → `~
 pub fn settings_path() -> PathBuf {
     if let Ok(p) = std::env::var("DC_SETTINGS") {
         return PathBuf::from(p);
@@ -41,7 +41,7 @@ pub fn settings_path() -> PathBuf {
 /// Load and validate the settings file. The encryption key itself is resolved
 /// via [`crate::keys::resolve`] (external key file → legacy `key:` here);
 /// this file only contributes non-key settings such as `audit_log`.
-// ⟦𓊿𓊵𓊇𓎸⟧ load :: Load and validate the settings file.
+// <REMOVED UUID HERE> load :: Load and validate the settings file.
 pub fn load() -> Result<Settings> {
     let path = settings_path();
     let parsed: SettingsFile = match std::fs::read_to_string(&path) {
@@ -66,7 +66,7 @@ pub fn load() -> Result<Settings> {
 }
 
 /// Convenience: load just the AEAD key (external key file wins over legacy `key:`).
-// ⟦𓏚𓋮𓏋𓐆⟧ key :: Convenience: load just the AEAD key.
+// <REMOVED UUID HERE> key :: Convenience: load just the AEAD key.
 pub fn key() -> Result<[u8; 32]> {
     Ok(crate::keys::resolve()?.key().to_owned())
 }

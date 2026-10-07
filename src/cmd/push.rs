@@ -55,7 +55,7 @@ fn remote_key(abs_path: &str) -> String {
         .collect()
 }
 
-// ⟦𓆔𓄞𓋑𓍉⟧ run :: auto-generated pointer for public function run
+// <REMOVED UUID HERE> run :: auto-generated pointer for public function run
 pub fn run(subject: &str, section_path: &str, tos: &[String], dry_run: bool, yes: bool) -> Result<()> {
     if tos.is_empty() {
         return Err(anyhow!("provide at least one --to <target>"));
