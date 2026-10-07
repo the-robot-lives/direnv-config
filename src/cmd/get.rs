@@ -161,7 +161,8 @@ fn auto_generate(gen_type: &str, length: usize) -> String {
             let bytes: Vec<u8> = (0..length).map(|_| rng.gen()).collect();
             bytes.iter().map(|b| format!("{:02x}", b)).collect()
         }
-        "password" | _ => {
+        // "password" and any unrecognised format
+        _ => {
             const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
             (0..length)
                 .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)

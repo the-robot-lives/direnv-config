@@ -2,9 +2,16 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   rust-cli:
@@ -12,9 +19,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test
-      - run: cargo clippy -- -D warnings
+      # Pinned: floating `stable` adds clippy lints each release and turns CI red unprompted.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.0"
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      # Tests + line-coverage gate (acceptance 55.65% on 2026-10-07 → gate 50).
+      - run: cargo llvm-cov --fail-under-lines 50 --lcov --output-path lcov.info
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-rust-cli
+          path: lcov.info
+          if-no-files-found: ignore
+
+  rust-cli-clippy:
+    name: Rust CLI clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned: floating `stable` adds clippy lints each release and turns CI red unprompted.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.0"
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets -- -D warnings
 
   rust-sdk:
     name: Rust SDK
@@ -24,9 +56,24 @@ jobs:
         working-directory: sdk/rust
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test
-      - run: cargo clippy -- -D warnings
+      # Pinned: floating `stable` adds clippy lints each release and turns CI red unprompted.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.0"
+          components: clippy, llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: sdk/rust
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      # Acceptance 84.45% on 2026-10-07 → gate 79.
+      - run: cargo llvm-cov --fail-under-lines 79 --lcov --output-path lcov.info
+      - run: cargo clippy --all-targets -- -D warnings
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-rust-sdk
+          path: sdk/rust/lcov.info
+          if-no-files-found: ignore
 
   typescript-sdk:
     name: TypeScript SDK
@@ -39,6 +86,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
       - run: npm ci
       - run: npm run build
       - run: npm test
@@ -54,8 +103,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e ".[dev]"
-      - run: pytest
+          cache: pip
+          cache-dependency-path: sdk/python/pyproject.toml
+      - run: pip install -e ".[dev]" pytest-cov
+      # Acceptance 66% on 2026-10-07 → gate 61.
+      - run: pytest --cov=direnv_config --cov-report=term --cov-report=xml --cov-fail-under=61
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-python-sdk
+          path: sdk/python/coverage.xml
+          if-no-files-found: ignore
 
   elixir-sdk:
     name: Elixir SDK
@@ -66,12 +124,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
+        id: beam
         with:
           otp-version: "26"
           elixir-version: "1.16"
+      # mix.lock is gitignored for this library, so key on mix.exs.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            sdk/elixir/deps
+            sdk/elixir/_build
+          key: ${{ runner.os }}-mix-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('sdk/elixir/mix.exs') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-
       - run: mix deps.get
       - run: mix compile --warnings-as-errors
-      - run: mix test
+      # Threshold lives in mix.exs (test_coverage.summary.threshold).
+      - run: mix test --cover
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-elixir-sdk
+          path: sdk/elixir/cover
+          if-no-files-found: ignore
 
   php-sdk:
     name: PHP SDK

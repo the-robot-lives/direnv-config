@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 - Docs: refreshed `PROJ-ARCH.md` / `PROJ-LAYOUT.md` and per-directory layout docs (`docs/layout/sdk.md`, `docs/layout/src.md`)
+- Keys: external lockable key file (`$DC_KEYS_FILE` → `~/.config/direnv-config/keys`, 0600) replaces the `key:` embedded in settings.yaml; `dc keys status|migrate|lock|unlock`. Legacy settings.yaml keys read transparently; `migrate` verifies every store token round-trips via the new key file before stripping key material (backup `settings.yaml.pre-keys`). Fail-loud on unreadable/missing key file — never silent legacy fallback.
 
 ## [m8-session-safety-hardening] — 2026-07-07 — tag: `utilities-shell-direnv-config/m8-session-safety-hardening`
 Milestone summary: concurrent shells and terminal tabs could corrupt or clobber each other's config state; this milestone closes both the write-path race and a tab-scoping bug.

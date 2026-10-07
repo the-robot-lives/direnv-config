@@ -24,7 +24,7 @@ fn strip_tombstones(val: &Value) -> Option<Value> {
             Some(Value::Mapping(out))
         }
         Value::Sequence(seq) => {
-            let cleaned: Vec<Value> = seq.iter().filter_map(|v| strip_tombstones(v)).collect();
+            let cleaned: Vec<Value> = seq.iter().filter_map(strip_tombstones).collect();
             Some(Value::Sequence(cleaned))
         }
         other => Some(other.clone()),

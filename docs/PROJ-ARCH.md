@@ -65,7 +65,7 @@ graph TB
 
 | Component | Purpose |
 |-----------|---------|
-| `src/cmd/` | CLI subcommands — store ops (yaml, get, set, env, init, list, bump, prune, purge, status, unset), secrets (secrets, gen, gen_secrets, encrypt, decrypt, bat), source editing (config), remote sync (compare, push, infisical) |
+| `src/cmd/` | CLI subcommands — store ops (yaml, get, set, env, init, list, bump, prune, purge, status, unset), secrets (secrets, gen, gen_secrets, encrypt, decrypt, bat), source editing (config), key management (keys), remote sync (compare, push, infisical) |
 | `src/store/` | Store discovery, layout, locking, version tracking, layer resolution, parent-chain merging |
 | `src/yaml/` | Deep merge engine, path expression evaluator, flatten-to-env-var system |
 | `src/envrc/` | Line-oriented `.envrc*` heredoc locator — edits hand-authored source files preserving comments/formatting |
@@ -111,9 +111,11 @@ Secrets are first-class and distinct from settings (see the README's
   an optional `❗` run encodes a sensitivity tier (0–3). `⛔` is the sentinel for
   shadowed ("locked-down") secrets.
 - **Encryption at rest**: XChaCha20-Poly1305 AEAD (RustCrypto `chacha20poly1305`)
-  with a symmetric key in `~/.config/direnv-config/settings.yaml`. Each secret is
-  serialized as a **flat self-describing scalar** `🔒:v1:t<tier>:<base64url(nonce‖ct‖tag)>`.
-  The flat-scalar shape is load-bearing: `merge`/`path`/`flatten` and **every SDK**
+  with a symmetric key held in the external, lockable key file
+  (`~/.config/direnv-config/keys`, 0600; legacy fallback: `key:` in
+  `settings.yaml` — see `dc keys status/migrate/lock/unlock`). Each secret is
+  serialized as a **flat self-describing scalar** `🔒:v1:t<tier>:<base64url(nonce‖ct‖tag)>`
+  (a legacy `dcenc:v1:` prefix is still recognized). The flat-scalar shape is load-bearing: `merge`/`path`/`flatten` and **every SDK**
   treat it as an opaque string and pass it through without the key. A contract-test
   fixture (`sdk/contract-tests`, `secret-store`) enforces this passthrough.
 - **Routing**: `dc yaml` splits a heredoc — plain keys to the requested layer,
@@ -155,7 +157,7 @@ testing.
 | Shell integration | POSIX sh / zsh / bash |
 | Config format | YAML (serde_yaml) |
 | State location | `~/.local/state/direnv-config/` (XDG_STATE_HOME) |
-| Settings/key | `~/.config/direnv-config/settings.yaml` |
+| Settings / key | `~/.config/direnv-config/settings.yaml` (audit_log, legacy key); key file `~/.config/direnv-config/keys` (preferred, lockable via `dc keys lock`) |
 | Store addressing | Path-to-name: strip leading `/`, replace `/` with `-`, SHA-256 truncation at 200 chars |
 | SDKs | TypeScript, Python, Elixir, PHP (read-only), Rust (read + write) — native (file) + CLI backends |
 | CI | GitHub Actions (`ci.yml`, `publish-sdks.yml`) |

@@ -17,6 +17,7 @@ src/
 │   ├── get.rs              #   dc get — read a config value
 │   ├── infisical.rs        #   dc infisical — secrets-map-driven compare/get/set vs Infisical
 │   ├── init.rs             #   dc init — initialize a store
+│   ├── keys.rs             #   dc keys — external lockable key file (status/migrate/lock/unlock)
 │   ├── list.rs             #   dc list — list stores/configs
 │   ├── mod.rs              #   Subcommand registry
 │   ├── prune.rs            #   dc prune — remove stale store state

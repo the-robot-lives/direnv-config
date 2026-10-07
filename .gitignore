@@ -8,3 +8,5 @@ target/
 .envrc.local
 # Canonical worktree placement
 .claude/worktrees/
+pr.json
+lcov.info

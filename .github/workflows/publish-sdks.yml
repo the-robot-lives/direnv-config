@@ -58,7 +58,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install build twine
+      - run: pip install -e ".[dev]" build twine
+      - run: pytest
       - run: python -m build
       - run: twine check dist/*
       - uses: pypa/gh-action-pypi-publish@release/v1
