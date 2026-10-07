@@ -5,14 +5,14 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { stringify as stringifyYaml } from 'yaml';
 
-// ⟦𓋃𓌫𓂄𓇈⟧ stateDir :: auto-generated pointer for public function stateDir
+// <REMOVED UUID HERE> stateDir :: auto-generated pointer for public function stateDir
 export function stateDir(): string {
   const xdg = process.env['XDG_STATE_HOME'];
   if (xdg) return join(xdg, 'direnv-config');
   return join(homedir(), '.local', 'state', 'direnv-config');
 }
 
-// ⟦𓈲𓋛𓁯𓌖⟧ pathToHash :: auto-generated pointer for public function pathToHash
+// <REMOVED UUID HERE> pathToHash :: auto-generated pointer for public function pathToHash
 export function pathToHash(dir: string): string {
   const stripped = dir.startsWith('/') ? dir.slice(1) : dir;
   const name = stripped.replace(/\//g, '-');
@@ -23,12 +23,12 @@ export function pathToHash(dir: string): string {
   return `${name.slice(0, 200)}-${hash.slice(0, 8)}`;
 }
 
-// ⟦𓈈𓊊𓋞𓄶⟧ storePath :: auto-generated pointer for public function storePath
+// <REMOVED UUID HERE> storePath :: auto-generated pointer for public function storePath
 export function storePath(dir: string): string {
   return join(stateDir(), pathToHash(dir));
 }
 
-// ⟦𓎓𓍥𓅲𓃊⟧ findCurrentStore :: auto-generated pointer for public function findCurrentStore
+// <REMOVED UUID HERE> findCurrentStore :: auto-generated pointer for public function findCurrentStore
 export async function findCurrentStore(startDir?: string): Promise<string> {
   let dir = startDir ?? process.cwd();
 
@@ -46,7 +46,7 @@ export async function findCurrentStore(startDir?: string): Promise<string> {
   );
 }
 
-// ⟦𓊟𓌹𓅔𓆒⟧ ensureStore :: auto-generated pointer for public function ensureStore
+// <REMOVED UUID HERE> ensureStore :: auto-generated pointer for public function ensureStore
 export async function ensureStore(dir: string): Promise<string> {
   const sp = storePath(dir);
   await mkdir(sp, { recursive: true });
@@ -62,19 +62,19 @@ export async function ensureStore(dir: string): Promise<string> {
   return sp;
 }
 
-// ⟦𓅬𓍰𓏑𓂓⟧ ensureConfig :: auto-generated pointer for public function ensureConfig
+// <REMOVED UUID HERE> ensureConfig :: auto-generated pointer for public function ensureConfig
 export async function ensureConfig(store: string, name: string): Promise<string> {
   const configDir = join(store, name);
   await mkdir(configDir, { recursive: true });
   return configDir;
 }
 
-// ⟦𓈙𓌀𓃔𓃌⟧ layerPath :: auto-generated pointer for public function layerPath
+// <REMOVED UUID HERE> layerPath :: auto-generated pointer for public function layerPath
 export function layerPath(store: string, name: string, layer: string): string {
   return join(store, name, `${layer}.yaml`);
 }
 
-// ⟦𓀉𓃑𓌾𓉹⟧ activePath :: auto-generated pointer for public function activePath
+// <REMOVED UUID HERE> activePath :: auto-generated pointer for public function activePath
 export function activePath(store: string, name: string): string {
   return join(store, name, '.active');
 }
