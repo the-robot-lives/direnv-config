@@ -10,7 +10,7 @@
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
-// ⟦𓆐𓎢𓇣𓊿⟧ run_status :: Report key-source mode for the active configuration.
+// <REMOVED UUID HERE> run_status :: Report key-source mode for the active configuration.
 pub fn run_status() -> Result<()> {
     let kpath = crate::keys::keys_path();
     let spath = crate::settings::settings_path();
@@ -46,7 +46,7 @@ pub fn run_status() -> Result<()> {
     Ok(())
 }
 
-// ⟦𓍁𓄜𓋰𓎗⟧ lock_state :: Describe lock hardening state of the key file (macOS/Linux).
+// <REMOVED UUID HERE> lock_state :: Describe lock hardening state of the key file (macOS/Linux).
 fn lock_state(path: &Path) -> String {
     #[cfg(unix)]
     {
@@ -103,7 +103,7 @@ fn lsattr_flags_have_i(out: &str) -> bool {
         .unwrap_or(false)
 }
 
-// ⟦𓋹𓆗𓂀𓊛⟧ run_migrate :: Move key from settings.yaml to the key file, verifying every token decrypts first.
+// <REMOVED UUID HERE> run_migrate :: Move key from settings.yaml to the key file, verifying every token decrypts first.
 pub fn run_migrate(stores: &[String], strip_only: bool) -> Result<()> {
     let kpath = crate::keys::keys_path();
     let spath = crate::settings::settings_path();
@@ -159,7 +159,7 @@ pub fn run_migrate(stores: &[String], strip_only: bool) -> Result<()> {
 }
 
 /// Decode every `dc` token found in a store file with `key`. Returns the count.
-// ⟦𓄞𓍗𓊚𓇬⟧ verify_store :: Decode every `dc` token found in a store file with `key`.
+// <REMOVED UUID HERE> verify_store :: Decode every `dc` token found in a store file with `key`.
 fn verify_store(path: &Path, key: &[u8; 32]) -> Result<usize> {
     let raw = std::fs::read_to_string(path)
         .with_context(|| format!("reading store {}", path.display()))?;
@@ -179,7 +179,7 @@ fn verify_store(path: &Path, key: &[u8; 32]) -> Result<usize> {
 }
 
 /// Pull complete `🔒:v1:` / `dcenc:v1:` tokens (single-line scalars) out of a line.
-// ⟦𓇮𓎼𓋞𓁜⟧ extract_tokens :: Pull complete dc tokens out of a line.
+// <REMOVED UUID HERE> extract_tokens :: Pull complete dc tokens out of a line.
 fn extract_tokens(line: &str) -> Vec<String> {
     let mut out = Vec::new();
     for prefix in ["🔒:v1:", "dcenc:v1:"] {
@@ -205,7 +205,7 @@ fn is_token_char(c: char) -> bool {
 /// Remove `key:` from settings.yaml, keeping a 0600 `.pre-keys` backup.
 /// The backup is written via temp+chmod-0600+rename so key material never
 /// rests on disk at umask perms.
-// ⟦𓊓𓆏𓍾𓄂⟧ strip_legacy_key :: Remove `key:` from settings.yaml, keeping a backup.
+// <REMOVED UUID HERE> strip_legacy_key :: Remove `key:` from settings.yaml, keeping a backup.
 fn strip_legacy_key(spath: &Path) -> Result<()> {
     let raw = std::fs::read_to_string(spath)
         .with_context(|| format!("reading {}", spath.display()))?;
@@ -234,7 +234,7 @@ fn strip_legacy_key(spath: &Path) -> Result<()> {
     Ok(())
 }
 
-// ⟦𓎺𓊠𓍛𓃠⟧ run_lock :: Print (and optionally run) root-ownership hardening for the key file.
+// <REMOVED UUID HERE> run_lock :: Print (and optionally run) root-ownership hardening for the key file.
 pub fn run_lock(yes: bool) -> Result<()> {
     let kpath = crate::keys::keys_path();
     if !kpath.exists() {
@@ -267,7 +267,7 @@ pub fn run_lock(yes: bool) -> Result<()> {
     Ok(())
 }
 
-// ⟦𓍞𓇤𓆡𓎸⟧ run_unlock :: Reverse key-file hardening.
+// <REMOVED UUID HERE> run_unlock :: Reverse key-file hardening.
 pub fn run_unlock(yes: bool) -> Result<()> {
     let kpath = crate::keys::keys_path();
     if !kpath.exists() {

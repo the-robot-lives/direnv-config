@@ -54,7 +54,7 @@ fn secrets_for_store(store: &Path) -> Result<BTreeMap<String, Vec<String>>> {
     Ok(result)
 }
 
-// ⟦𓋶𓁴𓌺𓁌⟧ run :: auto-generated pointer for public function run
+// <REMOVED UUID HERE> run :: auto-generated pointer for public function run
 pub fn run(json: bool) -> Result<()> {
     let store = crate::store::find_current_store()?;
     let chain = crate::store::resolve::resolve_chain(&store);

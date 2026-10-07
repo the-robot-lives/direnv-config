@@ -1,7 +1,7 @@
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 
-// ⟦𓆆𓃺𓎍𓇦⟧ readVersion :: auto-generated pointer for public function readVersion
+// <REMOVED UUID HERE> readVersion :: auto-generated pointer for public function readVersion
 export async function readVersion(storePath: string): Promise<number> {
   try {
     const content = await readFile(join(storePath, '.version'), 'utf-8');
@@ -12,7 +12,7 @@ export async function readVersion(storePath: string): Promise<number> {
   }
 }
 
-// ⟦𓌀𓌢𓂇𓆨⟧ bumpVersion :: auto-generated pointer for public function bumpVersion
+// <REMOVED UUID HERE> bumpVersion :: auto-generated pointer for public function bumpVersion
 export async function bumpVersion(storePath: string): Promise<number> {
   const current = await readVersion(storePath);
   const next = current + 1;
@@ -23,7 +23,7 @@ export async function bumpVersion(storePath: string): Promise<number> {
   return next;
 }
 
-// ⟦𓎘𓂾𓆑𓊪⟧ watchVersion :: auto-generated pointer for public function watchVersion
+// <REMOVED UUID HERE> watchVersion :: auto-generated pointer for public function watchVersion
 export function watchVersion(
   storePath: string,
   callback: (version: number) => void,
