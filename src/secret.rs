@@ -49,7 +49,7 @@ pub fn is_restricted_sentinel(raw: &str) -> bool {
 /// Redaction placeholder shown in place of a secret value, annotated by tier.
 // ⟦𓎖𓐂𓈇𓅲⟧ redaction_for :: Redaction placeholder shown in place of a secret value, annotated by tier.
 pub fn redaction_for(tier: u8) -> String {
-    let bangs: String = std::iter::repeat(BANG).take(tier.min(3) as usize).collect();
+    let bangs: String = std::iter::repeat_n(BANG, tier.min(3) as usize).collect();
     format!("{PADLOCK}{bangs} **redacted**")
 }
 

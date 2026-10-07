@@ -9,3 +9,4 @@ target/
 # Canonical worktree placement
 .claude/worktrees/
 pr.json
+lcov.info

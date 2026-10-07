@@ -19,6 +19,7 @@ pub struct SettingsFile {
 }
 
 pub struct Settings {
+    #[allow(dead_code)]
     pub key: [u8; 32],
     pub audit_log: Option<PathBuf>,
 }

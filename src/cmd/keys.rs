@@ -138,7 +138,7 @@ pub fn run_migrate(stores: &[String], strip_only: bool) -> Result<()> {
     let mut total = 0usize;
     for sp in &store_paths {
         let n = verify_store(sp, &key)
-            .map_err(|e| { let _ = std::fs::remove_file(&kpath); e })?;
+            .inspect_err(|_e| { let _ = std::fs::remove_file(&kpath); })?;
         println!("Verified    {}: {} encrypted entries round-trip via key file", sp.display(), n);
         total += n;
     }

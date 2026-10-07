@@ -56,9 +56,10 @@ fn run_parsed(input: &str, from: Option<&str>, tier: u8, inline: bool) -> Result
 
     let result = re.replace_all(input, |caps: &regex::Captures| {
         let inner = &caps[1];
-        if inner.starts_with(":v1:") || inner.starts_with(":dcenc:") {
-            caps[0].to_string()
-        } else if crate::crypto::is_encrypted(&format!("🔒{inner}")) {
+        if inner.starts_with(":v1:")
+            || inner.starts_with(":dcenc:")
+            || crate::crypto::is_encrypted(&format!("🔒{inner}"))
+        {
             caps[0].to_string()
         } else {
             match crate::crypto::encode_token(inner, tier, &key) {

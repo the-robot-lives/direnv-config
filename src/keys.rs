@@ -31,6 +31,7 @@ struct KeyFile {
 
 /// Where the active key came from.
 #[derive(Debug)]
+#[allow(dead_code)] // `path` is surfaced via Debug only
 pub enum KeySource {
     /// Dedicated lockable key file.
     External { path: PathBuf, key: [u8; 32] },

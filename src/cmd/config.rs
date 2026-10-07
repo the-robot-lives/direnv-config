@@ -30,7 +30,7 @@ fn write_lines(path: &Path, lines: &[String]) -> Result<()> {
 }
 
 fn marker(tier: u8) -> String {
-    let bangs: String = std::iter::repeat('❗').take(tier.min(3) as usize).collect();
+    let bangs: String = std::iter::repeat_n('❗', tier.min(3) as usize).collect();
     format!("{PADLOCK}{bangs}")
 }
 
@@ -59,9 +59,7 @@ fn current_value_text(lines: &[String], loc: &KeyLoc) -> String {
     if loc.is_block_scalar {
         lines[loc.value_start..=loc.value_end.min(lines.len() - 1)].join("\n")
     } else {
-        lines[loc.key_line]
-            .splitn(2, ':')
-            .nth(1)
+        lines[loc.key_line].split_once(':').map(|x| x.1)
             .unwrap_or("")
             .trim()
             .trim_matches(|c| c == '"' || c == '\'')
@@ -199,7 +197,7 @@ fn confirm_with(prompt: &str, is_tty: bool, input: &mut impl std::io::BufRead) -
 fn preview(lines: &[String], key_line: usize, last_line: usize, new_display: Option<&str>) {
     let start = key_line.saturating_sub(2);
     let end = (last_line + 3).min(lines.len());
-    eprintln!("  ┄┄ {} ┄┄", "context");
+    eprintln!("  ┄┄ context ┄┄");
     for (i, line) in lines.iter().enumerate().take(end).skip(start) {
         if i >= key_line && i <= last_line {
             eprintln!("  ➡️  {}", redact_for_display(line));
