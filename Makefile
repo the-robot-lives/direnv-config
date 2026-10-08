@@ -93,8 +93,10 @@ install-direnv-lib:
 # Adds the dc-init hook to ZSHRC. Only lines of the hook's own shape
 # (`eval "$(<path>/dc-init zsh)"`) are considered; other mentions of dc-init
 # (aliases, PATH entries, comments) are never touched. Hook lines whose dc-init path does not
-# resolve (stale absolute paths) are rewritten in place after a timestamped backup;
-# valid existing lines are left untouched.
+# resolve (stale absolute paths) are handled after a timestamped backup: if a valid
+# hook already exists they are commented out ("# disabled by direnv-config: ");
+# otherwise the first stale line is rewritten in place and any others are commented
+# out. Valid lines are left untouched, so reruns change nothing.
 install-shell-hook:
 	@echo "==> Installing shell hook"
 	@touch $(ZSHRC); \
@@ -108,23 +110,29 @@ install-shell-hook:
 		esac; \
 	done; \
 	if [ -n "$$stale" ]; then \
+		if $$valid; then first=0; else first=$$(echo $$stale | cut -d' ' -f1); fi; \
 		bak="$(ZSHRC).bak.dc-$$(date +%Y%m%d%H%M%S)"; \
 		cp $(ZSHRC) "$$bak"; \
 		for n in $$stale; do \
+			old=$$(sed -n "$${n}p" $(ZSHRC)); \
 			echo "    ~ $(ZSHRC):$$n (stale dc-init path)"; \
-			echo "      - $$(sed -n "$${n}p" $(ZSHRC))"; \
-			echo '      + $(SHELL_INIT)'; \
+			echo "      - $$old"; \
+			if [ "$$n" = "$$first" ]; then \
+				echo '      + $(SHELL_INIT)'; \
+			else \
+				echo "      + # disabled by direnv-config: $$old"; \
+			fi; \
 		done; \
-		awk -v lines="$$stale" -v repl='$(SHELL_INIT)' \
+		awk -v lines="$$stale" -v first="$$first" -v repl='$(SHELL_INIT)' \
 			'BEGIN { n = split(lines, a, " "); for (i = 1; i <= n; i++) fix[a[i]] = 1 } \
-			 (NR in fix) { print repl; next } { print }' "$$bak" > $(ZSHRC).dc-tmp && \
+			 (NR in fix) { if (NR == first) print repl; else print "# disabled by direnv-config: " $$0; next } { print }' "$$bak" > $(ZSHRC).dc-tmp && \
 		cat $(ZSHRC).dc-tmp > $(ZSHRC); rc=$$?; \
 		rm -f $(ZSHRC).dc-tmp; \
 		if [ $$rc -ne 0 ]; then \
-			echo "    ✗ Failed to rewrite $(ZSHRC); restore with: cp $$bak $(ZSHRC)" >&2; \
+			echo "    ✗ Failed to update $(ZSHRC); restore with: cp $$bak $(ZSHRC)" >&2; \
 			exit 1; \
 		fi; \
-		echo "    ✓ Rewrote stale dc-init line(s); backup: $$bak"; \
+		echo "    ✓ Fixed stale dc-init line(s); backup: $$bak"; \
 	elif $$valid; then \
 		echo "    ✓ Already present in $(ZSHRC)"; \
 	else \
@@ -213,6 +221,9 @@ check:
 		echo "  ✓ direnv stdlib: $(DIRENV_LIB)/dc.sh"; \
 	else \
 		echo "  ✗ direnv stdlib: $(DIRENV_LIB)/dc.sh missing"; ok=false; \
+	fi; \
+	if [ -f "$(DIRENV_LIB)/dc.sh" ] && ! cmp -s "$(DIRENV_LIB)/dc.sh" "$(DC_HOME)/lib/direnv-stdlib.sh"; then \
+		echo "  ! direnv stdlib: installed lib differs from source; rerun make install-direnv-lib"; \
 	fi; \
 	if grep -qF 'dc-init' $(ZSHRC) 2>/dev/null; then \
 		echo "  ✓ shell hook: present in $(ZSHRC)"; \
