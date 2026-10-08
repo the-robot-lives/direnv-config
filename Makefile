@@ -3,7 +3,9 @@ INSTALL_DIR  := $(HOME)/.local/bin
 DIRENV_LIB   := $(HOME)/.config/direnv/lib
 ZSHRC        := $(HOME)/.zshrc
 STATE_DIR    := $(HOME)/.local/state/direnv-config
-SHELL_INIT   := eval "$$($(DC_HOME)/bin/dc-init zsh)"
+# Hook references the installed dc-init (stable path), never the source checkout,
+# so moving/remounting the checkout can't break the shell hook.
+SHELL_INIT   := eval "$$($(INSTALL_DIR)/dc-init zsh)"
 CARGO        := cargo
 RELEASE_BIN  := target/release/dc
 
@@ -81,12 +83,41 @@ install: compile install-direnv-lib install-shell-hook install-cli
 install-direnv-lib:
 	@echo "==> Installing direnv stdlib extension"
 	@mkdir -p $(DIRENV_LIB)
-	@ln -sfn $(DC_HOME)/lib/direnv-stdlib.sh $(DIRENV_LIB)/dc.sh
-	@echo "    $(DIRENV_LIB)/dc.sh → $(DC_HOME)/lib/direnv-stdlib.sh"
+	@# Copy (not symlink): a symlink into the checkout dangles whenever the checkout
+	@# moves or its volume remounts. rm first so an old symlink is replaced, not
+	@# written through. Re-run this target after editing lib/direnv-stdlib.sh.
+	@rm -f $(DIRENV_LIB)/dc.sh
+	@install -m 644 $(DC_HOME)/lib/direnv-stdlib.sh $(DIRENV_LIB)/dc.sh
+	@echo "    $(DC_HOME)/lib/direnv-stdlib.sh → $(DIRENV_LIB)/dc.sh (copy)"
 
+# Adds the dc-init hook to ZSHRC. Existing hook lines whose dc-init path does not
+# resolve (stale absolute paths) are rewritten in place after a timestamped backup;
+# valid existing lines are left untouched.
 install-shell-hook:
 	@echo "==> Installing shell hook"
-	@if grep -qF 'dc-init' $(ZSHRC) 2>/dev/null; then \
+	@touch $(ZSHRC); \
+	stale=""; valid=false; \
+	for n in $$(grep -n 'dc-init' $(ZSHRC) | grep -v '^[0-9]*:[[:space:]]*#' | cut -d: -f1); do \
+		cmd=$$(sed -n "$${n}p" $(ZSHRC) | sed -E 's/.*\$$\(([^ )]*dc-init).*/\1/'); \
+		case "$$cmd" in \
+			*/*) if [ -x "$$cmd" ]; then valid=true; else stale="$$stale $$n"; fi ;; \
+			*)   if [ -x "$(INSTALL_DIR)/dc-init" ] || command -v "$$cmd" >/dev/null 2>&1; then valid=true; else stale="$$stale $$n"; fi ;; \
+		esac; \
+	done; \
+	if [ -n "$$stale" ]; then \
+		bak="$(ZSHRC).bak.dc-$$(date +%Y%m%d%H%M%S)"; \
+		cp $(ZSHRC) "$$bak"; \
+		for n in $$stale; do \
+			echo "    ~ $(ZSHRC):$$n (stale dc-init path)"; \
+			echo "      - $$(sed -n "$${n}p" $(ZSHRC))"; \
+			echo '      + $(SHELL_INIT)'; \
+		done; \
+		awk -v lines="$$stale" -v repl='$(SHELL_INIT)' \
+			'BEGIN { n = split(lines, a, " "); for (i = 1; i <= n; i++) fix[a[i]] = 1 } \
+			 (NR in fix) { print repl; next } { print }' "$$bak" > $(ZSHRC).dc-tmp && \
+		cat $(ZSHRC).dc-tmp > $(ZSHRC) && rm -f $(ZSHRC).dc-tmp; \
+		echo "    ✓ Rewrote stale dc-init line(s); backup: $$bak"; \
+	elif $$valid; then \
 		echo "    ✓ Already present in $(ZSHRC)"; \
 	else \
 		echo '' >> $(ZSHRC); \
@@ -167,7 +198,10 @@ check:
 	else \
 		echo "  ✗ dc binary: not found in $(INSTALL_DIR)"; ok=false; \
 	fi; \
-	if [ -L "$(DIRENV_LIB)/dc.sh" ]; then \
+	if [ -L "$(DIRENV_LIB)/dc.sh" ] && [ ! -e "$(DIRENV_LIB)/dc.sh" ]; then \
+		echo "  ✗ direnv stdlib: $(DIRENV_LIB)/dc.sh is a dangling symlink → $$(readlink $(DIRENV_LIB)/dc.sh)"; \
+		echo "    Run: make install-direnv-lib"; ok=false; \
+	elif [ -f "$(DIRENV_LIB)/dc.sh" ] && [ -r "$(DIRENV_LIB)/dc.sh" ]; then \
 		echo "  ✓ direnv stdlib: $(DIRENV_LIB)/dc.sh"; \
 	else \
 		echo "  ✗ direnv stdlib: $(DIRENV_LIB)/dc.sh missing"; ok=false; \
@@ -199,13 +233,15 @@ doctor: check
 		echo "  · $(STATE_DIR) does not exist yet (created on first dc_yaml call)"; \
 	fi
 	@echo ""
-	@echo "==> Checking direnv stdlib symlink target"
+	@echo "==> Checking direnv stdlib is current"
 	@if [ -L "$(DIRENV_LIB)/dc.sh" ]; then \
-		target=$$(readlink $(DIRENV_LIB)/dc.sh); \
-		if [ -f "$$target" ]; then \
-			echo "  ✓ Symlink target exists: $$target"; \
+		echo "  · $(DIRENV_LIB)/dc.sh is a legacy symlink → $$(readlink $(DIRENV_LIB)/dc.sh)"; \
+		echo "    Run: make install-direnv-lib  (installs a copy)"; \
+	elif [ -f "$(DIRENV_LIB)/dc.sh" ]; then \
+		if cmp -s "$(DIRENV_LIB)/dc.sh" "$(DC_HOME)/lib/direnv-stdlib.sh"; then \
+			echo "  ✓ Installed copy matches lib/direnv-stdlib.sh"; \
 		else \
-			echo "  ✗ Symlink target missing: $$target"; \
+			echo "  · Installed copy differs from lib/direnv-stdlib.sh"; \
 			echo "    Run: make install-direnv-lib"; \
 		fi; \
 	fi

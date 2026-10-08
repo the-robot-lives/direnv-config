@@ -1,5 +1,6 @@
 # direnv-stdlib extension for direnv-config
 # Loaded automatically by direnv from ~/.config/direnv/lib/dc.sh
+# That file is a COPY of this one: run `make install-direnv-lib` after editing.
 # Provides: dc_yaml, dc_get, dc_set, dc_unset, dc_prune, dc_bump, dc_export
 
 dc_yaml() {
