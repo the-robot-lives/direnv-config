@@ -138,7 +138,7 @@ Secrets are first-class and distinct from settings (see the README's
 Unlike the sibling shell utilities under `utilities/`, which source the shared
 `share/k8-lib/` and install via the monorepo's `make install-utilities`,
 `direnv-config` is a standalone Rust project with its own `make install`
-(binary → `~/.local/bin/dc`, stdlib symlink → `~/.config/direnv/lib/dc.sh`,
+(binary → `~/.local/bin/dc`, stdlib copy → `~/.config/direnv/lib/dc.sh`,
 `dc-init` hook in `.zshrc`). It is a *dependency* of the ecosystem rather than
 a consumer of it: the monorepo's `.envrc.k8.dc` holds scalar build/deploy
 config (AWS, Docker, Helm, Infisical creds) referenced by `.infra-config.yaml`

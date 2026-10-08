@@ -63,7 +63,7 @@ direnv-config/
 | File | Action |
 |------|--------|
 | `Makefile` | `make install` — builds binary, installs direnv stdlib, adds shell hook |
-| `lib/direnv-stdlib.sh` | Symlinked to `~/.config/direnv/lib/dc.sh` by `make install` |
+| `lib/direnv-stdlib.sh` | Copied to `~/.config/direnv/lib/dc.sh` by `make install` (edits need `make install-direnv-lib` to take effect) |
 | `bin/dc-init` | Installed to `~/.local/bin/dc-init`; sourced in `.zshrc` |
 
 ## Installed Locations
@@ -72,7 +72,7 @@ direnv-config/
 |-----------|------|
 | CLI binary | `~/.local/bin/dc` |
 | Shell initializer | `~/.local/bin/dc-init` |
-| direnv stdlib | `~/.config/direnv/lib/dc.sh` → symlink to `lib/direnv-stdlib.sh` |
+| direnv stdlib | `~/.config/direnv/lib/dc.sh` (copy of `lib/direnv-stdlib.sh`; re-run `make install-direnv-lib` after edits) |
 | Shell completions | bash: `~/.local/share/bash-completion/completions/dc`; zsh: `~/.local/share/zsh/site-functions/_dc` (`make install-completions`) |
 | Runtime state | `~/.local/state/direnv-config/{path-hash}/` |
 | Global settings | `~/.config/direnv-config/settings.yaml` |
