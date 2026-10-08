@@ -90,15 +90,18 @@ install-direnv-lib:
 	@install -m 644 $(DC_HOME)/lib/direnv-stdlib.sh $(DIRENV_LIB)/dc.sh
 	@echo "    $(DC_HOME)/lib/direnv-stdlib.sh → $(DIRENV_LIB)/dc.sh (copy)"
 
-# Adds the dc-init hook to ZSHRC. Existing hook lines whose dc-init path does not
+# Adds the dc-init hook to ZSHRC. Only lines of the hook's own shape
+# (`eval "$(<path>/dc-init zsh)"`) are considered; other mentions of dc-init
+# (aliases, PATH entries, comments) are never touched. Hook lines whose dc-init path does not
 # resolve (stale absolute paths) are rewritten in place after a timestamped backup;
 # valid existing lines are left untouched.
 install-shell-hook:
 	@echo "==> Installing shell hook"
 	@touch $(ZSHRC); \
 	stale=""; valid=false; \
-	for n in $$(grep -n 'dc-init' $(ZSHRC) | grep -v '^[0-9]*:[[:space:]]*#' | cut -d: -f1); do \
-		cmd=$$(sed -n "$${n}p" $(ZSHRC) | sed -E 's/.*\$$\(([^ )]*dc-init).*/\1/'); \
+	hook_re='^[[:space:]]*eval[[:space:]]+"?\$$\([^ )]*dc-init[[:space:]]+zsh[[:space:]]*\)'; \
+	for n in $$(grep -nE "$$hook_re" $(ZSHRC) | cut -d: -f1); do \
+		cmd=$$(sed -n "$${n}p" $(ZSHRC) | sed -E 's/^[[:space:]]*eval[[:space:]]+"?\$$\(([^ )]*dc-init)[[:space:]].*/\1/'); \
 		case "$$cmd" in \
 			*/*) if [ -x "$$cmd" ]; then valid=true; else stale="$$stale $$n"; fi ;; \
 			*)   if [ -x "$(INSTALL_DIR)/dc-init" ] || command -v "$$cmd" >/dev/null 2>&1; then valid=true; else stale="$$stale $$n"; fi ;; \
@@ -115,7 +118,12 @@ install-shell-hook:
 		awk -v lines="$$stale" -v repl='$(SHELL_INIT)' \
 			'BEGIN { n = split(lines, a, " "); for (i = 1; i <= n; i++) fix[a[i]] = 1 } \
 			 (NR in fix) { print repl; next } { print }' "$$bak" > $(ZSHRC).dc-tmp && \
-		cat $(ZSHRC).dc-tmp > $(ZSHRC) && rm -f $(ZSHRC).dc-tmp; \
+		cat $(ZSHRC).dc-tmp > $(ZSHRC); rc=$$?; \
+		rm -f $(ZSHRC).dc-tmp; \
+		if [ $$rc -ne 0 ]; then \
+			echo "    ✗ Failed to rewrite $(ZSHRC); restore with: cp $$bak $(ZSHRC)" >&2; \
+			exit 1; \
+		fi; \
 		echo "    ✓ Rewrote stale dc-init line(s); backup: $$bak"; \
 	elif $$valid; then \
 		echo "    ✓ Already present in $(ZSHRC)"; \
