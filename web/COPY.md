@@ -2,9 +2,11 @@
 
 Page: single route `/` at **dirconfig.therobotlives.com** · implemented in `web/` (Elixir Hologram)
 Sources of truth: repo `README.md`, `docs/PROJ-ARCH.summary.md`, `docs/PROJ-SCHEMA.summary.md`,
-`docs/THREAT-MODEL.summary.md`, `docs/TEST-HEALTH.md`, `demo/README.md`, `src/main.rs` (Commands
-enum), `Makefile`, `CHANGELOG.md`, `Cargo.toml`, `LICENSE` (MIT) — every claim below is
-repo-verifiable as of commit `3190560` (develop, 2026-10-12).
+`docs/PROJ-HOWTO.md` (dc load walkthrough), `src/cmd/load.rs`, `src/cmd/config.rs`,
+`src/store/meta.rs`, `lib/direnv-stdlib.sh` (`dc_load` shim), `docs/THREAT-MODEL.summary.md`,
+`docs/TEST-HEALTH.md`, `demo/README.md`, `src/main.rs` (Commands enum), `Makefile`,
+`CHANGELOG.md`, `Cargo.toml`, `LICENSE` (MIT) — every claim below is repo-verifiable as of
+develop@`3d82a39` (merged into this branch, 2026-10-12 — includes the released `dc load` work).
 
 **Design note (bypass):** no hero art / media-generation mockup loop — mirrors the run-claude
 landing: example-led typography IS the design, dark-first, monospace-forward. The hero's visual is
@@ -54,9 +56,9 @@ as every other Hologram site in the fleet).
 |---|---|
 | **Tagline** (≤7 words) | YAML in. Env vars out. |
 | **One-liner** | direnv-config replaces sprawling `export VAR=value` `.envrc` files with named, layered YAML configs — deep-merged and flattened into environment variables. |
-| **Paragraph** | `dc` is a Rust CLI plus a direnv stdlib extension. Projects declare named configs in a one-liner `.envrc`; values live as layered YAML (`base.yaml` → env overlay → `local.yaml` → `secrets.yaml`) under `~/.local/state/direnv-config/`, deep-merged and flattened into env vars. Because state lives in files, any process — parent, child, sibling, a coding agent — can read or mutate shared config; every write bumps a version counter and snapshots to `history/`. Secrets are first-class: gitignored `secrets.yaml`, XChaCha20-Poly1305-encrypted values, generated placeholders, bidirectional Infisical sync. |
-| **Benefit pillars** | One-liner `.envrc`, structured YAML · File-based state is IPC · Secrets, first-class |
-| **Proof points** | 22 subcommands · 148 CLI tests plus five SDK suites · published THREAT-MODEL.md and TEST-HEALTH.md · runnable `demo/` walkthrough |
+| **Paragraph** | `dc` is a Rust CLI plus a direnv stdlib extension. Projects declare named configs in a one-liner `.envrc`; values live as layered YAML (`base.yaml` → env overlay → `local.yaml` → `secrets.yaml`) under `~/.local/state/direnv-config/`, deep-merged and flattened into env vars. Config can be `dc_yaml` heredocs, external YAML files loaded with `dc load`, or both. Because state lives in files, any process — parent, child, sibling, a coding agent — can read or mutate shared config; every write bumps a version counter and snapshots to `history/`. Secrets are first-class: gitignored `secrets.yaml`, XChaCha20-Poly1305-encrypted values, generated placeholders, bidirectional Infisical sync. |
+| **Benefit pillars** | One-liner `.envrc` or real YAML files, structured config · File-based state is IPC · Secrets, first-class |
+| **Proof points** | 23 subcommands · 148 CLI tests plus five SDK suites · published THREAT-MODEL.md and TEST-HEALTH.md · runnable `demo/` walkthrough |
 
 ## 5. Landing-page copy block (final copy, implemented verbatim)
 
@@ -102,9 +104,10 @@ as every other Hologram site in the fleet).
 ### Benefit blocks ×3
 
 1. **One-liner `.envrc`, structured YAML.** `.envrc` files grow 50+ export lines. direnv-config
-   replaces them with a single `dc_yaml` heredoc per named config. Values are nested keys in
-   layered YAML — `base.yaml` → env overlay → `local.yaml` → `secrets.yaml` — deep-merged
-   Elixir-style, then flattened into env vars by `_dc` rules.
+   replaces them with a single `dc_yaml` heredoc per named config — or whole YAML files loaded
+   with `dc load`, several subjects per file. Values are nested keys in layered YAML —
+   `base.yaml` → env overlay → `local.yaml` → `secrets.yaml` — deep-merged Elixir-style, then
+   flattened into env vars by `_dc` rules.
 2. **File-based state is IPC.** Env vars are write-once from a parent process's view — a child
    can't update them. dc's state lives in files, so any process (parent, child, sibling, a coding
    agent, a terminal-tab script) can read or mutate shared config. Every write bumps a monotonic
@@ -128,14 +131,67 @@ Section heading: **The `.envrc` you have vs. the one you could have**
 | No history | Timestamped snapshots on every write |
 | No sharing with external state (tab titles, etc.) | `dc_set tab status "deploying"` — file-based IPC |
 
+### External files (`dc load`)
+
+Section heading: **Config can live in real files, not heredocs** · sub-line: *The `dc_yaml`
+heredoc is the workhorse — but a config can outgrow it. `dc load` ingests ordinary YAML files
+through the exact same path: several subjects per file, deep-merged, layer-routed.*
+
+File example (figcaption: `team.yaml — root keys are subject names; each value is that
+subject's config`):
+
+```yaml
+cluster:
+  name: acme
+  kubeconfig: ~/.kube/acme/config
+ci:
+  _dc_layer: local          # per-subject layer routing, stripped before ingest
+  runner: linux
+cf:
+  access:
+    client_secret: "🔒 not-a-real-secret"   # 🔒 prefix = encrypted at ingest
+```
+
+Load example:
+
+```bash
+dc load team.yaml shared.yaml   # argument order is load order — later files win on conflict
+dc load --layer dev dev.yaml    # default layer for subjects without _dc_layer
+# in .envrc, the shim re-ingests on every direnv source:
+dc_load team.yaml shared.yaml
+dc_export
+```
+
+Provenance paragraph: *Reads and writes stay provenance-routed. `dc config get` prints the
+owning `file:line`; `dc config set` splices the file the key actually came from — comments
+preserved — and refuses to guess when a key matches in more than one place, naming every
+candidate. `--file` forces the destination; new keys land in the last-loaded file.*
+
+Cards ×3:
+
+1. **Load order is precedence.** Files deep-merge in argument order — later files win on
+   conflict — and layers resolve by their existing weights; there is no "inline beats
+   external" rule. A subject name that would collide with a root key goes under a
+   `subjects:` wrapper; mixing the wrapper with other root keys is an error, not a guess.
+2. **Refreshes are faithful.** Loaded files are tracked — path, mtime, size, and load
+   options — in the store's `.meta` registry, so direnv re-ingests exactly what you loaded.
+   A file loaded with `--if-missing` seeds the store once; its values are store-owned
+   afterwards, and refreshes never replay `--replace`.
+3. **Same secrets, any file.** Encryption is per-value and location-agnostic: a `🔒`-marked
+   value is XChaCha20-Poly1305-encrypted at ingest whether it arrives in a heredoc or an
+   external file. Moving config into files changes nothing about how secrets are stored,
+   masked, or revealed.
+
 ### How it works (3 steps)
 
-1. **Declare configs in `.envrc`** — one `dc_yaml <name> <<'YAML'` heredoc per named config, then
-   `dc_export`. Stores form an inheritance chain down the directory tree: child directories
-   deep-merge their ancestors' configs, ancestor-first.
+1. **Declare configs in `.envrc`** — one `dc_yaml <name> <<'YAML'` heredoc per named config —
+   or a `dc_load <file>…` line for external YAML files — then `dc_export`. Stores form an
+   inheritance chain down the directory tree: child directories deep-merge their ancestors'
+   configs, ancestor-first.
 2. **dc resolves layers into state** — each config lives under
    `~/.local/state/direnv-config/<path-hash>/` with its layer files, a resolved `.active` merge,
-   a `.version` counter, and `history/`. Every mutating call regenerates `.active` and writes a
+   a `.version` counter, and `history/`. Externally loaded files are registered in `.meta` so
+   refreshes replay the same ingest. Every mutating call regenerates `.active` and writes a
    timestamped snapshot; `_dc_prune` tombstones cut inheritance where you don't want it.
 3. **Every shell sees the change** — a `precmd` hook watches `.version` and reloads the
    environment on the next prompt. Read-modify-write commands take an advisory `flock`, so
@@ -144,11 +200,12 @@ Section heading: **The `.envrc` you have vs. the one you could have**
 
 ### CLI surface + trust
 
-Section heading: **22 subcommands, one small binary** · sub-line: `Rust, built with clap; zsh and
+Section heading: **23 subcommands, one small binary** · sub-line: `Rust, built with clap; zsh and
 bash completions ship in the box.`
 
 ```bash
 dc yaml <name>                # deep-merge YAML from stdin (--replace, --replace-key, --if-missing, --layer)
+dc load <file> [<file>...]    # ingest external YAML files — load order is precedence
 dc get / set / unset / bump   # read values; mutate values and the version counter
 dc list / status / env        # configs, merge state, resolved environment
 dc gen / gen-secrets          # generate values and placeholder secrets
@@ -177,8 +234,9 @@ Trust cards ×3:
    keys; layers give you dev/prod/local overrides without duplication; the parent chain gives you
    inheritance down the directory tree; every write is versioned and snapshotted. Plain exports
    give you none of that.
-2. **Where does my config actually live?** Your `.envrc` stays the source of truth — the
-   `dc_yaml` heredocs are it. Resolved state lives under `~/.local/state/direnv-config/`
+2. **Where does my config actually live?** In the sources you declare: `dc_yaml` heredocs in
+   `.envrc`, plus any YAML files registered with `dc load` — `dc config get` names the exact
+   `file:line` a key came from. Resolved state lives under `~/.local/state/direnv-config/`
    (one directory per project path hash), with the merged `.active` snapshot, the `.version`
    counter, and `history/`.
 3. **Can two shells write at the same time?** Yes. Every read-modify-write command takes an
@@ -206,7 +264,7 @@ Trust cards ×3:
 
 ---
 
-## 6. Repo-verifiable claims (all against commit `3190560`)
+## 6. Repo-verifiable claims (all against develop@`3d82a39`, merged into this branch)
 
 | # | Claim on page | Verified in |
 |---|---|---|
@@ -219,7 +277,7 @@ Trust cards ×3:
 | 7 | Masked output by default; audited reveal (0600 audit log); digest-based remote comparison | `docs/PROJ-ARCH.summary.md`, `docs/PROJ-SCHEMA.summary.md`, `docs/THREAT-MODEL.summary.md` |
 | 8 | Infisical sync `get|set|compare`; `k8://` address scheme also exists | `README.md`, `docs/PROJ-SCHEMA.summary.md` |
 | 9 | `_dc_prune`/tombstone inheritance control | `docs/PROJ-ARCH.summary.md` |
-| 10 | 22 visible subcommands | `src/main.rs` Commands enum (23 variants; `__complete-purge` hidden) |
+| 10 | 23 visible subcommands | `src/main.rs` Commands enum (24 variants; `__complete-purge` hidden) |
 | 11 | `flock` around every read-modify-write; corrupt layers refused not replaced | `CHANGELOG.md` [m8-session-safety-hardening] |
 | 12 | Five SDKs (TS, Python, Elixir, PHP read-only; Rust read+write) with shared contract tests | `docs/PROJ-ARCH.summary.md` |
 | 13 | 148 CLI tests; Rust SDK 71+1; Python 114; Elixir 89 (measured 2026-10-07) | `docs/TEST-HEALTH.md` |
@@ -230,6 +288,13 @@ Trust cards ×3:
 | 18 | MIT | `Cargo.toml`, `LICENSE` |
 | 19 | Generated placeholder secrets (`🎲`) | `docs/PROJ-SCHEMA.summary.md`, `src/main.rs` GenSecrets |
 | 20 | zsh + bash completions ship in the box | `docs/PROJ-ARCH.summary.md`, `Makefile` install-completions |
+| 21 | `dc load <file> [<file>…]` ingests external YAML: root mapping subject→body, or a lone `subjects:` wrapper; wrapper mixed with other root keys is an ambiguity error | `src/cmd/load.rs` (`parse_subjects`), `docs/PROJ-HOWTO.md` |
+| 22 | Load order is argument order; later files win on conflict; no "inline beats external" rule | `src/cmd/load.rs` module docs + `later_files_win_on_conflict` test |
+| 23 | `_dc_layer:` routes a subject's layer, stripped before ingest; CLI `--layer` is the default for subjects that omit it (default `base`) | `src/cmd/load.rs`, `docs/PROJ-SCHEMA.summary.md` |
+| 24 | Provenance-routed writes: `dc config get` prints owning `file:line`; `dc config set` splices the owning file, refuses on ambiguity naming every candidate, `--file` (validated against known sources) forces the destination; new keys land in the last-loaded file | `src/cmd/config.rs`, `docs/PROJ-HOWTO.md` |
+| 25 | Loaded files registered in store `.meta` `external:` (path+mtime+size+load options, load order); `--if-missing` seeds once and is never re-ingested by a refresh (store-owned values not reverted); `--replace`/`--replace-key` never replayed | `src/store/meta.rs`, `src/cmd/load.rs`, `docs/PROJ-SCHEMA.summary.md` |
+| 26 | `dc_load` direnv shim exists, mirroring `dc_yaml` | `lib/direnv-stdlib.sh` |
+| 27 | Encryption unchanged by external files: `🔒`-marked values encrypted at ingest, XChaCha20-Poly1305, wherever they live | `src/cmd/load.rs` ("Encryption is unchanged from `dc yaml`"), `docs/PROJ-HOWTO.md` |
 
 ## Voice rules
 

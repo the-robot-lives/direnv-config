@@ -49,8 +49,9 @@ dc_export</code></pre>
         <h3>One-liner .envrc, structured YAML</h3>
         <p>
           <code>.envrc</code> files grow 50+ export lines. direnv-config replaces them with a
-          single <code>dc_yaml</code> heredoc per named config. Values are nested keys in layered
-          YAML — <code>base.yaml</code> → env overlay → <code>local.yaml</code> →
+          single <code>dc_yaml</code> heredoc per named config — or whole YAML files loaded
+          with <code>dc load</code>, several subjects per file. Values are nested keys in
+          layered YAML — <code>base.yaml</code> → env overlay → <code>local.yaml</code> →
           <code>secrets.yaml</code> — deep-merged Elixir-style, then flattened into env vars by
           <code>_dc</code> rules.
         </p>
@@ -128,6 +129,74 @@ dc_export</code></pre>
   </div>
 </section>
 
+<!-- EXTERNAL FILES (dc load) -->
+<section class="section" id="files">
+  <div class="container">
+    <h2>Config can live in real files, not heredocs</h2>
+    <p class="section-lede">
+      The <code>dc_yaml</code> heredoc is the workhorse — but a config can outgrow it.
+      <code>dc load</code> ingests ordinary YAML files through the exact same path: several
+      subjects per file, deep-merged, layer-routed.
+    </p>
+    <figure class="install-block" aria-label="External YAML file example">
+      <figcaption class="install-title">team.yaml — root keys are subject names; each value is that subject's config</figcaption>
+      <pre><code>cluster:
+  name: acme
+  kubeconfig: ~/.kube/acme/config
+ci:
+  _dc_layer: local          # per-subject layer routing, stripped before ingest
+  runner: linux
+cf:
+  access:
+    client_secret: "🔒 not-a-real-secret"   # 🔒 prefix = encrypted at ingest</code></pre>
+    </figure>
+    <figure class="install-block cli-block" aria-label="dc load commands">
+      <pre><code>dc load team.yaml shared.yaml   # argument order is load order — later files win on conflict
+dc load --layer dev dev.yaml    # default layer for subjects without _dc_layer
+# in .envrc, the shim re-ingests on every direnv source:
+dc_load team.yaml shared.yaml
+dc_export</code></pre>
+    </figure>
+    <p class="section-lede">
+      Reads and writes stay provenance-routed. <code>dc config get</code> prints the owning
+      <code>file:line</code>; <code>dc config set</code> splices the file the key actually came
+      from — comments preserved — and refuses to guess when a key matches in more than one
+      place, naming every candidate. <code>--file</code> forces the destination; new keys land
+      in the last-loaded file.
+    </p>
+    <div class="benefit-grid">
+      <article class="card">
+        <h3>Load order is precedence</h3>
+        <p>
+          Files deep-merge in argument order — later files win on conflict — and layers
+          resolve by their existing weights; there is no "inline beats external" rule. A
+          subject name that would collide with a root key goes under a
+          <code>subjects:</code> wrapper; mixing the wrapper with other root keys is an
+          error, not a guess.
+        </p>
+      </article>
+      <article class="card">
+        <h3>Refreshes are faithful</h3>
+        <p>
+          Loaded files are tracked — path, mtime, size, and load options — in the store's
+          <code>.meta</code> registry, so direnv re-ingests exactly what you loaded. A file
+          loaded with <code>--if-missing</code> seeds the store once; its values are
+          store-owned afterwards, and refreshes never replay <code>--replace</code>.
+        </p>
+      </article>
+      <article class="card">
+        <h3>Same secrets, any file</h3>
+        <p>
+          Encryption is per-value and location-agnostic: a <code>🔒</code>-marked value is
+          XChaCha20-Poly1305-encrypted at ingest whether it arrives in a heredoc or an
+          external file. Moving config into files changes nothing about how secrets are
+          stored, masked, or revealed.
+        </p>
+      </article>
+    </div>
+  </div>
+</section>
+
 <!-- HOW IT WORKS -->
 <section class="section" id="how">
   <div class="container">
@@ -136,7 +205,8 @@ dc_export</code></pre>
       <li>
         <h3>Declare configs in .envrc</h3>
         <p>
-          One <code>dc_yaml &lt;name&gt; &lt;&lt;'YAML'</code> heredoc per named config, then
+          One <code>dc_yaml &lt;name&gt; &lt;&lt;'YAML'</code> heredoc per named config — or a
+          <code>dc_load &lt;file&gt;…</code> line for external YAML files — then
           <code>dc_export</code>. Stores form an inheritance chain down the directory tree:
           child directories deep-merge their ancestors' configs, ancestor-first.
         </p>
@@ -146,9 +216,10 @@ dc_export</code></pre>
         <p>
           Each config lives under <code>~/.local/state/direnv-config/&lt;path-hash&gt;/</code>
           with its layer files, a resolved <code>.active</code> merge, a <code>.version</code>
-          counter, and <code>history/</code>. Every mutating call regenerates <code>.active</code>
-          and writes a timestamped snapshot; <code>_dc_prune</code> tombstones cut inheritance
-          where you don't want it.
+          counter, and <code>history/</code>. Externally loaded files are registered in
+          <code>.meta</code> so refreshes replay the same ingest. Every mutating call
+          regenerates <code>.active</code> and writes a timestamped snapshot;
+          <code>_dc_prune</code> tombstones cut inheritance where you don't want it.
         </p>
       </li>
       <li>
@@ -167,12 +238,13 @@ dc_export</code></pre>
 <!-- CLI + TRUST -->
 <section class="section section-why" id="cli">
   <div class="container">
-    <h2>22 subcommands, one small binary</h2>
+    <h2>23 subcommands, one small binary</h2>
     <p class="section-lede">
       Rust, built with clap; zsh and bash completions ship in the box.
     </p>
     <figure class="install-block cli-block" aria-label="dc CLI surface">
       <pre><code>dc yaml &lt;name&gt;                  # deep-merge YAML from stdin (--replace, --replace-key, --if-missing, --layer)
+dc load &lt;file&gt; [&lt;file&gt;...]     # ingest external YAML files — load order is precedence
 dc get / set / unset / bump     # read values; mutate values and the version counter
 dc list / status / env          # configs, merge state, resolved environment
 dc gen / gen-secrets            # generate values and placeholder secrets
@@ -228,10 +300,12 @@ dc prune / purge                # hygiene: tombstone inheritance, remove state</
       <details class="faq-item">
         <summary>Where does my config actually live?</summary>
         <p>
-          Your <code>.envrc</code> stays the source of truth — the <code>dc_yaml</code> heredocs
-          are it. Resolved state lives under <code>~/.local/state/direnv-config/</code> (one
-          directory per project path hash), with the merged <code>.active</code> snapshot, the
-          <code>.version</code> counter, and <code>history/</code>.
+          In the sources you declare: <code>dc_yaml</code> heredocs in
+          <code>.envrc</code>, plus any YAML files registered with <code>dc load</code> —
+          <code>dc config get</code> names the exact <code>file:line</code> a key came from.
+          Resolved state lives under <code>~/.local/state/direnv-config/</code> (one
+          directory per project path hash), with the merged <code>.active</code> snapshot,
+          the <code>.version</code> counter, and <code>history/</code>.
         </p>
       </details>
       <details class="faq-item">
