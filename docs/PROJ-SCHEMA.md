@@ -11,6 +11,7 @@
 ```mermaid
 graph TD
     ENVRC[".envrc (source of truth)<br/>dc_yaml heredocs per named config"] -->|dc_yaml / dc_set writes| STORE["state store<br/>~/.local/state/direnv-config/&lt;store&gt;/"]
+    EXTFILES["external YAML files<br/>dc load: subject→body / subjects: wrapper / _dc_layer"] -->|dc_load ingest + .meta registry| STORE
     ENVRC -->|🔒 tag| SECRETS["secrets.yaml layer<br/>🔒:v1 encrypted tokens"]
     ENVRC -->|⛔ sentinel| SHADOW["shadow store<br/>&lt;project&gt;/.secrets/restricted.config.yaml"]
     STORE -->|resolve: base→env→local→secrets| ACTIVE[".active snapshot"]
@@ -27,6 +28,7 @@ graph TD
 skinparam linetype ortho
 
 component ".envrc\n(dc_yaml heredocs)" as envrc
+component "external YAML files\n(dc load registry in .meta)" as extfiles
 component "state store\n~/.local/state/direnv-config/<store>/" as store
 component ".active snapshot" as active
 component "secrets.yaml\n(🔒:v1 tokens)" as secrets
@@ -38,6 +40,7 @@ database "Infisical" as infisical
 database "k8s Secrets" as k8s
 
 envrc --> store : dc_yaml / dc_set
+extfiles --> store : dc_load / dc config set (splice + re-ingest)
 envrc --> secrets : 🔒 tag → encrypt
 envrc --> shadow : dc config secure (⛔ sentinel)
 store --> active : base→{DC_ENV}→local→secrets
@@ -77,6 +80,82 @@ dc_bump                          # finalize after batched writes
 | `🎲 <name> 🔒 <charset> <len>` | generator placeholder for `dc gen-secrets` |
 | `⛔` | restricted sentinel — value lives in shadow store only |
 
+## External YAML files — `dc load`
+
+Config sources may also live in **plain YAML files** outside `.envrc`, ingested
+with `dc load <file> [<file>...]` (or the `dc_load` stdlib shim). Each file is a
+single YAML document; the root mapping is **subject name → config body**. The
+same markers/encryption as heredocs apply — a `🔒` value encrypts to a `🔒:v1`
+token in `secrets.yaml`; nothing about the crypto changes.
+
+```yaml
+# team.yaml — root mapping = subject -> body
+cluster:
+  name: noizu
+cf:
+  access:
+    client_secret: "🔒 hunter2"   # encrypted at ingest; never stored plaintext
+
+# alternative: subjects: wrapper (same file, one style only — mixing the
+# wrapper with other root keys is an error)
+subjects:
+  cluster:
+    name: noizu
+```
+
+Per-subject routing key (stripped before ingest):
+
+| Key | Meaning |
+|-----|---------|
+| `_dc_layer: <name>` | route that subject to a layer; the CLI `--layer` flag is the default for subjects lacking it; layer defaults to `base` |
+
+`dc load` mirrors the `dc yaml` flags (`--replace`, `--replace-key`,
+`--if-missing`, `--no-bump`) and bumps the version once at the end. When
+several files are loaded in one invocation (or across invocations), **later
+files win** on key conflicts (deep merge per ingest step).
+
+### Provenance registry (store `.meta`)
+
+Loaded files are registered in the store's `.meta` under `external:`, in load
+order (last entry = last loaded), each
+`{path (absolute), mtime, size, layer, if_missing}` — the latter two record the
+invocation's load options (the `--layer` default; whether `--if-missing` was
+set). Registry entries written before the load-options fields existed
+deserialize with `layer: base` / `if_missing: false`; no released version ever
+wrote such entries, so there is no migration path to maintain. `--replace` /
+`--replace-key` are deliberately **not** recorded or replayed — a destructive
+replace belongs to the explicit `dc load` invocation only. The registry drives
+lookup and write routing:
+
+- `dc config get <subject> <path>` searches `.envrc*` **and** every registered
+  external file, reporting `file:line`.
+- `dc config set` splices the file that owns the key (comments and sibling
+  lines preserved); a key found in **two** files refuses with every candidate
+  listed — disambiguate with `--file <path>` (validated against registered
+  files and `.envrc*` sources).
+- **New keys** (errata) insert into the **last-loaded** file — unless
+  `--file <path>` overrides — then fall back to earlier registered files and
+  `.envrc*` heredocs when the subject is absent from the last-loaded one.
+- A registered file that has vanished produces a **warning**, not a failure
+  (re-run `dc load` or edit the registry to refresh it).
+
+**Refresh guarantee:** when `dc config set`/`setall` re-ingests a subject, a
+file loaded with `--if-missing` is **never** re-ingested — it seeds the store
+once and its values are store-owned afterwards (mirroring `--if-missing`
+heredoc blocks), so a refresh can never revert them to the stale seed. Other
+files re-ingest into the layer recorded at load time (their `_dc_layer`
+per-subject routing still applies within the file).
+
+### Ingest precedence
+
+Within one layer, **ingest order decides** — each ingest step deep-merges over
+what is already in the store, so the last source to write a key per layer wins.
+There is no "inline beats external" rule: a `dc_yaml` heredoc loaded *after* a
+`dc load` file wins; loaded after, the external file wins. Across layers the
+existing weights apply unchanged (`base` 1000 → env 750 → `local` 500 →
+`secrets` 250 wins). `dc config set` re-ingests the subject's sources with the
+just-edited file last, so the edit takes effect immediately.
+
 ## State store layout
 
 One store per directory with an `.envrc`, named by path hash (strip leading `/`,
@@ -86,7 +165,7 @@ One store per directory with an `.envrc`, named by path hash (strip leading `/`,
 ```
 <store-name>/
 ├── .version                  # monotonic integer counter
-├── .meta                     # source abs path, timestamps, full hash
+├── .meta                     # source abs path, timestamps, full hash, external-file registry
 ├── <config-name>/            # one dir per named config
 │   ├── base.yaml             # committable defaults
 │   ├── {DC_ENV}.yaml         # env overlay (DC_ENV defaults dev)
