@@ -227,9 +227,17 @@ jobs:
           for i in $(seq 1 45); do
             if curl -fsS http://127.0.0.1:8160/healthz | grep -q ok; then
               PAGE=$(curl -fsS http://127.0.0.1:8160/)
-              echo "$PAGE" | grep -q "YAML in. Env vars out."
-              echo "$PAGE" | grep -q "How it works"
-              echo "$PAGE" | grep -q "23 subcommands, one small binary"
+              # A bare failing grep exits silently under bash -e and leaves
+              # nothing to diagnose — report which probe string missed.
+              check() {
+                echo "$PAGE" | grep -q "$1" || {
+                  echo "::error::hero copy probe failed: \"$1\" not found in /"
+                  exit 1
+                }
+              }
+              check "YAML in. Env vars out."
+              check "How it works"
+              check "23 subcommands, one small binary"
               exit 0
             fi
             sleep 1
@@ -284,6 +292,14 @@ jobs:
         run: |
           SHORT=${GITHUB_SHA::7}
           sed -i -E "s|(image: ops\.noizu\.com/dirconfig\.therobotlives\.com/web:).*|\1sha-${SHORT}|" helm/dirconfig-site/values.yaml
+          # If the sed ever stops matching values.yaml, the diff-quiet guard
+          # below exits 0 and ArgoCD silently keeps serving the old image.
+          # Fail loudly when the expected tag is not in the file exactly once.
+          hits=$(grep -c "ops\.noizu\.com/dirconfig\.therobotlives\.com/web:sha-${SHORT}" helm/dirconfig-site/values.yaml || true)
+          if [ "${hits:-0}" -ne 1 ]; then
+            echo "::error::bump-chart: expected exactly 1 image tag sha-${SHORT} in helm/dirconfig-site/values.yaml, found ${hits:-0} — sed pattern no longer matches?"
+            exit 1
+          fi
       - name: Commit & push
         run: |
           git config user.name "dirconfig-site-ci"
@@ -296,7 +312,7 @@ jobs:
   ci-timing:
     # PR-run timing tracker (fleet standard). Warn-only: never blocks.
     # Thresholds are repo/org Variables PR_STEP_MAX_MINUTES / PR_RUN_MAX_MINUTES, defaults 4/7.
-    needs: [rust-cli, rust-sdk, typescript-sdk, python-sdk, elixir-sdk, php-sdk, web-test, smoke]
+    needs: [rust-cli, rust-cli-clippy, rust-sdk, typescript-sdk, python-sdk, elixir-sdk, php-sdk, web-test, smoke]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
