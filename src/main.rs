@@ -39,6 +39,22 @@ enum Commands {
         #[arg(long)]
         no_bump: bool,
     },
+    /// Load external YAML config file(s) into the store (root keys = subjects)
+    Load {
+        /// Files to load, in order (later files win on conflict)
+        #[arg(required = true)]
+        files: Vec<String>,
+        #[arg(long)]
+        layer: Option<String>,
+        #[arg(long)]
+        replace: bool,
+        #[arg(long, value_name = "KEY")]
+        replace_key: Option<String>,
+        #[arg(long)]
+        if_missing: bool,
+        #[arg(long)]
+        no_bump: bool,
+    },
     /// Read a config value by path
     Get {
         name: String,
@@ -329,6 +345,9 @@ enum ConfigCmd {
         encrypted: bool,
         #[arg(long)]
         yes: bool,
+        /// Force the destination file (registered external file or .envrc*)
+        #[arg(long, value_name = "FILE")]
+        file: Option<String>,
     },
     /// Insert a YAML section (from stdin) above/below an anchor entry
     Setall {
@@ -341,6 +360,9 @@ enum ConfigCmd {
         below: Option<String>,
         #[arg(long)]
         yes: bool,
+        /// Force the destination file (registered external file or .envrc*)
+        #[arg(long, value_name = "FILE")]
+        file: Option<String>,
     },
     /// Move a secret into the shadow store, leaving a ⛔ sentinel behind
     Secure {
@@ -356,6 +378,9 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Yaml { name, layer, replace, replace_key, if_missing, no_bump } => {
             cmd::yaml::run(&name, layer.as_deref(), replace, replace_key.as_deref(), if_missing, no_bump)
+        }
+        Commands::Load { files, layer, replace, replace_key, if_missing, no_bump } => {
+            cmd::load::run(&files, layer.as_deref(), replace, replace_key.as_deref(), if_missing, no_bump)
         }
         Commands::Get { name, path, raw, r#override, fallback, auto, default, reveal, clippy, reveal_restricted } => {
             cmd::get::run(&name, path.as_deref(), raw, r#override.as_deref(), fallback.as_deref(), &auto, default.as_deref(), reveal, clippy, reveal_restricted)
@@ -417,10 +442,19 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Config { sub } => match sub {
             ConfigCmd::Get { subject, path } => cmd::config::get(&subject, &path),
-            ConfigCmd::Set { subject, path, value, from, stdin, encrypted, yes } => {
-                cmd::config::set(&subject, &path, value.as_deref(), from.as_deref(), stdin, encrypted, yes)
+            ConfigCmd::Set { subject, path, value, from, stdin, encrypted, yes, file } => {
+                cmd::config::set(
+                    &subject,
+                    &path,
+                    value.as_deref(),
+                    from.as_deref(),
+                    stdin,
+                    encrypted,
+                    yes,
+                    file.as_deref(),
+                )
             }
-            ConfigCmd::Setall { subject, above, below, yes } => {
+            ConfigCmd::Setall { subject, above, below, yes, file } => {
                 let (anchor, is_below) = match (above, below) {
                     (Some(a), None) => (a, false),
                     (None, Some(b)) => (b, true),
@@ -428,7 +462,7 @@ fn main() -> anyhow::Result<()> {
                 };
                 let mut buf = String::new();
                 std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
-                cmd::config::setall(&subject, &buf, &subject, &anchor, is_below, yes)
+                cmd::config::setall(&subject, &buf, &subject, &anchor, is_below, yes, file.as_deref())
             }
             ConfigCmd::Secure { subject, path, note } => {
                 shadow::secure(&subject, &path, note.as_deref())

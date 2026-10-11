@@ -37,6 +37,7 @@ _dc() {
     command)
       local -a commands=(
         'yaml:Merge YAML from stdin into a named config'
+        'load:Load external YAML config file(s) into the store'
         'get:Read a config value by path'
         'gen:Generate a random secret (encrypted by default)'
         'encrypt:Encrypt a plaintext value into a locked token'
@@ -70,6 +71,15 @@ _dc() {
             '--if-missing[only merge if config does not exist]' \
             '--no-bump[do not bump version counter]' \
             '1:config name:_dc_configs' && ret=0
+          ;;
+        load)
+          _arguments \
+            '--layer=[default layer for subjects without _dc_layer]:layer:' \
+            '--replace[replace entire config instead of merging]' \
+            '--replace-key=[replace only this key path]:key:' \
+            '--if-missing[only merge if config does not exist]' \
+            '--no-bump[do not bump version counter]' \
+            '*:YAML file:_files' && ret=0
           ;;
         get)
           _arguments \
@@ -183,6 +193,7 @@ _dc() {
                   '--stdin[read value from stdin]' \
                   '--encrypted[value is already an encrypted token]' \
                   '--yes[skip confirmation]' \
+                  '--file=[force destination file]:file:_files' \
                   '1:config name:_dc_configs' \
                   '2:path:' && ret=0
                 ;;
@@ -191,6 +202,7 @@ _dc() {
                   '--above=[anchor path to insert above]:path:' \
                   '--below=[anchor path to insert below]:path:' \
                   '--yes[skip confirmation]' \
+                  '--file=[force destination file]:file:_files' \
                   '1:config name:_dc_configs' && ret=0
                 ;;
               secure)
