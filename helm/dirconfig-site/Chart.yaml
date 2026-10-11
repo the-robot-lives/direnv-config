@@ -1,0 +1,16 @@
+apiVersion: v2
+name: dirconfig-site
+description: dirconfig.therobotlives.com — direnv-config marketing site (server-rendered Phoenix/Hologram, Bandit)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - direnv-config
+  - phoenix
+  - hologram
+  - elixir
+maintainers:
+  - name: Keith Brings
+    email: keith.brings@noizu.com
+sources:
+  - https://github.com/the-robot-lives/direnv-config

@@ -1,0 +1,364 @@
+<!-- HERO -->
+<section class="hero" id="top">
+  <div class="container hero-inner">
+    <p class="eyebrow">YAML-backed config layer for direnv · Rust · MIT</p>
+    <h1>YAML in. Env vars out.</h1>
+    <p class="lede">
+      direnv-config replaces sprawling <code>export VAR=value</code> <code>.envrc</code> files
+      with named, layered YAML configs — deep-merged and flattened into environment variables.
+      Because state lives in files, any process can read or write it: parent shell, child script,
+      sibling tab, a coding agent.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary btn-lg" href="#install">Install from source</a>
+      <a class="btn btn-ghost btn-lg" href="#how">How it works</a>
+    </div>
+    <p class="cta-fine"><em>Local-first state · secrets encrypted at rest · MIT licensed</em></p>
+
+    <figure class="install-block" id="install" aria-label="Install commands">
+      <figcaption class="install-title">Install — clone + make (prerequisites: direnv hooked into your shell, plus a Rust toolchain)</figcaption>
+      <pre><code>git clone https://github.com/the-robot-lives/direnv-config &amp;&amp; cd direnv-config
+
+make compile            # cargo build --release
+make test
+make install            # dc binary + direnv stdlib + shell hook
+make install-completions
+make doctor             # verify the installation</code></pre>
+    </figure>
+    <p class="install-note">
+      dc is not on crates.io or Homebrew yet — it installs from source. Packaged installs are planned.
+    </p>
+
+    <figure class="install-block" aria-label="Project .envrc example">
+      <figcaption class="install-title">Then, in a project .envrc</figcaption>
+      <pre><code>dc_yaml cluster &lt;&lt;'YAML'
+name: acme
+kubeconfig: ~/.kube/acme/config
+YAML
+dc_export</code></pre>
+    </figure>
+  </div>
+</section>
+
+<!-- BENEFITS (3-up) -->
+<section class="section" id="features">
+  <div class="container">
+    <h2 class="visually-hidden">Why direnv-config</h2>
+    <div class="benefit-grid">
+      <article class="card">
+        <h3>One-liner .envrc, structured YAML</h3>
+        <p>
+          <code>.envrc</code> files grow 50+ export lines. direnv-config replaces them with a
+          single <code>dc_yaml</code> heredoc per named config — or whole YAML files loaded
+          with <code>dc load</code>, several subjects per file. Values are nested keys in
+          layered YAML — <code>base.yaml</code> → env overlay → <code>local.yaml</code> →
+          <code>secrets.yaml</code> — deep-merged Elixir-style, then flattened into env vars by
+          <code>_dc</code> rules.
+        </p>
+      </article>
+      <article class="card">
+        <h3>File-based state is IPC</h3>
+        <p>
+          Env vars are write-once from a parent process's view — a child can't update them. dc's
+          state lives in files, so any process (parent, child, sibling, a coding agent, a
+          terminal-tab script) can read or mutate shared config. Every write bumps a monotonic
+          <code>.version</code> counter and snapshots to <code>history/</code>; a
+          <code>precmd</code> hook reloads the shell on change.
+        </p>
+      </article>
+      <article class="card">
+        <h3>Secrets, first-class</h3>
+        <p>
+          A separate gitignored <code>secrets.yaml</code>; values encrypted at rest
+          (XChaCha20-Poly1305, key in a 0600 lockable file); generated placeholder secrets;
+          masked output by default with audited reveal; bidirectional Infisical sync that
+          compares digests, never plaintext.
+        </p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- WHY TABLE -->
+<section class="section section-why" id="why">
+  <div class="container">
+    <h2>The .envrc you have vs. the one you could have</h2>
+    <p class="section-lede">
+      Straight from the README's problem/fix table — every row is a mechanism, not a mood.
+    </p>
+    <div class="table-scroll">
+      <table class="why-table">
+        <thead>
+          <tr>
+            <th scope="col">.envrc today</th>
+            <th scope="col">direnv-config fix</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>.envrc files grow 50+ export lines</td>
+            <td>One-liner .envrc loading structured YAML</td>
+          </tr>
+          <tr>
+            <td>No hierarchy or grouping</td>
+            <td>Named configs with nested keys</td>
+          </tr>
+          <tr>
+            <td>Child processes can't update parent config</td>
+            <td>Edit the YAML; parent reads next access</td>
+          </tr>
+          <tr>
+            <td>No layering (dev vs prod vs local)</td>
+            <td>Elixir-style deep merge across layer files</td>
+          </tr>
+          <tr>
+            <td>Secrets mixed with plain config</td>
+            <td>Separate secrets.yaml (gitignored)</td>
+          </tr>
+          <tr>
+            <td>No history</td>
+            <td>Timestamped snapshots on every write</td>
+          </tr>
+          <tr>
+            <td>No sharing with external state (tab titles, etc.)</td>
+            <td>dc_set tab status "deploying" — file-based IPC</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- EXTERNAL FILES (dc load) -->
+<section class="section" id="files">
+  <div class="container">
+    <h2>Config can live in real files, not heredocs</h2>
+    <p class="section-lede">
+      The <code>dc_yaml</code> heredoc is the workhorse — but a config can outgrow it.
+      <code>dc load</code> ingests ordinary YAML files through the exact same path: several
+      subjects per file, deep-merged, layer-routed.
+    </p>
+    <figure class="install-block" aria-label="External YAML file example">
+      <figcaption class="install-title">team.yaml — root keys are subject names; each value is that subject's config</figcaption>
+      <pre><code>cluster:
+  name: acme
+  kubeconfig: ~/.kube/acme/config
+ci:
+  _dc_layer: local          # per-subject layer routing, stripped before ingest
+  runner: linux
+cf:
+  access:
+    client_secret: "🔒 not-a-real-secret"   # 🔒 prefix = encrypted at ingest</code></pre>
+    </figure>
+    <figure class="install-block cli-block" aria-label="dc load commands">
+      <pre><code>dc load team.yaml shared.yaml   # argument order is load order — later files win on conflict
+dc load --layer dev dev.yaml    # default layer for subjects without _dc_layer
+# in .envrc, the shim re-ingests on every direnv source:
+dc_load team.yaml shared.yaml
+dc_export</code></pre>
+    </figure>
+    <p class="section-lede">
+      Reads and writes stay provenance-routed. <code>dc config get</code> prints the owning
+      <code>file:line</code>; <code>dc config set</code> splices the file the key actually came
+      from — comments preserved — and refuses to guess when a key matches in more than one
+      place, naming every candidate. <code>--file</code> forces the destination; new keys land
+      in the last-loaded file.
+    </p>
+    <div class="benefit-grid">
+      <article class="card">
+        <h3>Load order is precedence</h3>
+        <p>
+          Files deep-merge in argument order — later files win on conflict — and layers
+          resolve by their existing weights; there is no "inline beats external" rule. A
+          subject name that would collide with a root key goes under a
+          <code>subjects:</code> wrapper; mixing the wrapper with other root keys is an
+          error, not a guess.
+        </p>
+      </article>
+      <article class="card">
+        <h3>Refreshes are faithful</h3>
+        <p>
+          Loaded files are tracked — path, mtime, size, and load options — in the store's
+          <code>.meta</code> registry, so direnv re-ingests exactly what you loaded. A file
+          loaded with <code>--if-missing</code> seeds the store once; its values are
+          store-owned afterwards, and refreshes never replay <code>--replace</code>.
+        </p>
+      </article>
+      <article class="card">
+        <h3>Same secrets, any file</h3>
+        <p>
+          Encryption is per-value and location-agnostic: a <code>🔒</code>-marked value is
+          XChaCha20-Poly1305-encrypted at ingest whether it arrives in a heredoc or an
+          external file. Moving config into files changes nothing about how secrets are
+          stored, masked, or revealed.
+        </p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="section" id="how">
+  <div class="container">
+    <h2>How it works</h2>
+    <ol class="steps">
+      <li>
+        <h3>Declare configs in .envrc</h3>
+        <p>
+          One <code>dc_yaml &lt;name&gt; &lt;&lt;'YAML'</code> heredoc per named config — or a
+          <code>dc_load &lt;file&gt;…</code> line for external YAML files — then
+          <code>dc_export</code>. Stores form an inheritance chain down the directory tree:
+          child directories deep-merge their ancestors' configs, ancestor-first.
+        </p>
+      </li>
+      <li>
+        <h3>dc resolves layers into state</h3>
+        <p>
+          Each config lives under <code>~/.local/state/direnv-config/&lt;path-hash&gt;/</code>
+          with its layer files, a resolved <code>.active</code> merge, a <code>.version</code>
+          counter, and <code>history/</code>. Externally loaded files are registered in
+          <code>.meta</code> so refreshes replay the same ingest. Every mutating call
+          regenerates <code>.active</code> and writes a timestamped snapshot;
+          <code>_dc_prune</code> tombstones cut inheritance where you don't want it.
+        </p>
+      </li>
+      <li>
+        <h3>Every shell sees the change</h3>
+        <p>
+          A <code>precmd</code> hook watches <code>.version</code> and reloads the environment on
+          the next prompt. Read-modify-write commands take an advisory <code>flock</code>, so
+          concurrent shells can't clobber each other's writes. <code>dc set</code> from a deploy
+          script updates the parent shell's config — and its terminal tab title.
+        </p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- CLI + TRUST -->
+<section class="section section-why" id="cli">
+  <div class="container">
+    <h2>23 subcommands, one small binary</h2>
+    <p class="section-lede">
+      Rust, built with clap; zsh and bash completions ship in the box.
+    </p>
+    <figure class="install-block cli-block" aria-label="dc CLI surface">
+      <pre><code>dc yaml &lt;name&gt;                  # deep-merge YAML from stdin (--replace, --replace-key, --if-missing, --layer)
+dc load &lt;file&gt; [&lt;file&gt;...]     # ingest external YAML files — load order is precedence
+dc get / set / unset / bump     # read values; mutate values and the version counter
+dc list / status / env          # configs, merge state, resolved environment
+dc gen / gen-secrets            # generate values and placeholder secrets
+dc encrypt / decrypt / secrets  # secret material; masked by default, reveal is audited
+dc bat                          # browse configs with secrets masked, regex filters
+dc infisical / compare / push   # sync against Infisical — digests, never plaintext
+dc keys / config / init         # key file, tool configuration, scaffold a store
+dc prune / purge                # hygiene: tombstone inheritance, remove state</code></pre>
+    </figure>
+    <div class="benefit-grid">
+      <article class="card">
+        <h3>A published threat model</h3>
+        <p>
+          <code>docs/THREAT-MODEL.md</code> walks a STRIDE register — store tampering, key
+          exfiltration, log disclosure — and states the residual risk plainly: dc trusts
+          same-user processes; the 0600 key file raises the bar, it is not a security boundary.
+        </p>
+      </article>
+      <article class="card">
+        <h3>A published test-health report</h3>
+        <p>
+          171 CLI tests plus five SDK suites (Rust, TypeScript, Python, Elixir, PHP) kept
+          aligned by shared contract fixtures — CLI count re-measured 2026-10-12; see
+          <code>docs/TEST-HEALTH.md</code>.
+        </p>
+      </article>
+      <article class="card">
+        <h3>Honest defaults</h3>
+        <p>
+          Secret values are masked in output by default; reveals are written to a 0600 audit
+          log; remote sync compares digests, not plaintext; nothing leaves the machine without
+          an explicit sync command.
+        </p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="section section-faq" id="faq">
+  <div class="container container-narrow">
+    <h2>Questions you'd ask before trusting it</h2>
+    <div class="faq-list">
+      <details class="faq-item">
+        <summary>Is this just .env files with extra steps?</summary>
+        <p>
+          No. Named configs give you grouping and nested keys; layers give you dev/prod/local
+          overrides without duplication; the parent chain gives you inheritance down the
+          directory tree; every write is versioned and snapshotted. Plain exports give you none
+          of that.
+        </p>
+      </details>
+      <details class="faq-item">
+        <summary>Where does my config actually live?</summary>
+        <p>
+          In the sources you declare: <code>dc_yaml</code> heredocs in
+          <code>.envrc</code>, plus any YAML files registered with <code>dc load</code> —
+          <code>dc config get</code> names the exact <code>file:line</code> a key came from.
+          Resolved state lives under <code>~/.local/state/direnv-config/</code> (one
+          directory per project path hash), with the merged <code>.active</code> snapshot,
+          the <code>.version</code> counter, and <code>history/</code>.
+        </p>
+      </details>
+      <details class="faq-item">
+        <summary>Can two shells write at the same time?</summary>
+        <p>
+          Yes. Every read-modify-write command takes an advisory <code>flock</code> on the
+          store, so simultaneous invocations can't lose writes or version bumps. A layer file
+          that exists but fails to parse is refused, not silently replaced.
+        </p>
+      </details>
+      <details class="faq-item">
+        <summary>Do secrets ever leave my machine?</summary>
+        <p>
+          Only when you run an explicit sync command (<code>dc infisical</code>,
+          <code>dc compare</code>, <code>dc push</code>). Comparison uses digests — plaintext
+          never crosses the wire — and the default output path masks secret values everywhere.
+        </p>
+      </details>
+      <details class="faq-item">
+        <summary>What if I lose the machine holding the key?</summary>
+        <p>
+          Encrypted values are unrecoverable without the key file — back it up.
+          <code>dc keys status | lock | unlock | migrate</code> manages the key file; legacy
+          keys embedded in <code>settings.yaml</code> are still read transparently.
+        </p>
+      </details>
+      <details class="faq-item">
+        <summary>How do I install it?</summary>
+        <p>
+          Clone the repo and <code>make install</code> — see the box at the top. You need
+          direnv hooked into your shell and a Rust toolchain. It is not on crates.io or
+          Homebrew yet; packaged installs are planned.
+        </p>
+      </details>
+      <details class="faq-item">
+        <summary>What's the license?</summary>
+        <p>MIT. Fork it, read the threat model, run the demo.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- CLOSING CTA -->
+<section class="closing" id="get-started">
+  <div class="container closing-inner">
+    <h2>YAML in. Env vars out.</h2>
+    <figure class="install-block" aria-label="Install commands">
+      <pre><code>git clone https://github.com/the-robot-lives/direnv-config &amp;&amp; cd direnv-config
+make compile &amp;&amp; make test
+make install &amp;&amp; make doctor</code></pre>
+    </figure>
+    <div class="cta-row">
+      <a class="btn btn-primary btn-lg" href="#install">Install from source</a>
+    </div>
+  </div>
+</section>
