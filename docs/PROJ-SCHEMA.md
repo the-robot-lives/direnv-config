@@ -136,8 +136,12 @@ lookup and write routing:
 - **New keys** (errata) insert into the **last-loaded** file — unless
   `--file <path>` overrides — then fall back to earlier registered files and
   `.envrc*` heredocs when the subject is absent from the last-loaded one.
-- A registered file that has vanished produces a **warning**, not a failure
-  (re-run `dc load` or edit the registry to refresh it).
+- The registry is **append-only today**: each `dc load` invocation adds the
+  files it loaded for that store. A registered file that has vanished produces
+  a **warning**, not a failure — the file is skipped. Deregistration is not
+  yet supported (#15); the intended end state is parity with `dc_yaml`
+  re-entry, where a `dc load` invocation defines the current set, exactly as
+  `.envrc*` discovery is live for heredocs.
 
 **Refresh guarantee:** when `dc config set`/`setall` re-ingests a subject, a
 file loaded with `--if-missing` is **never** re-ingested — it seeds the store
