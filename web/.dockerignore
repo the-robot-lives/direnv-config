@@ -6,3 +6,4 @@ test
 .git
 .claude
 *.ez
+priv/static/hologram/*.js.map

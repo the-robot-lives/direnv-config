@@ -66,7 +66,14 @@ RUN --mount=type=cache,id=dcweb-mix-hex,target=/root/.hex,sharing=locked \
     --mount=type=cache,id=dcweb-mix-rebar,target=/root/.cache/rebar3,sharing=locked \
     --mount=type=cache,id=dcweb-mix-deps,target=/app/deps,sharing=locked \
     mix deps.get --only $MIX_ENV && \
-    mix release && cp -a /app/_build/${MIX_ENV}/rel/direnv_config_web /app/release
+    mix release && cp -a /app/_build/${MIX_ENV}/rel/direnv_config_web /app/release && \
+    find /app/release -name "*.js.map" -delete
+# Hologram always emits source maps (--sourcemap is hardcoded in its esbuild
+# invocation) and their sourcesContent embeds absolute build-environment paths
+# (the page entry modules import deps by absolute path). Plug.Static serves the
+# whole hologram/ dir, so strip the maps from the release tree: they are a
+# debugging aid, not a runtime dependency. .dockerignore keeps locally built
+# maps out of the context; this removes the ones the in-container build makes.
 
 FROM ${BASE_IMAGE} AS production
 
