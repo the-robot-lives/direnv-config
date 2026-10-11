@@ -229,7 +229,7 @@ jobs:
               PAGE=$(curl -fsS http://127.0.0.1:8160/)
               echo "$PAGE" | grep -q "YAML in. Env vars out."
               echo "$PAGE" | grep -q "How it works"
-              echo "$PAGE" | grep -q "22 subcommands, one small binary"
+              echo "$PAGE" | grep -q "23 subcommands, one small binary"
               exit 0
             fi
             sleep 1
