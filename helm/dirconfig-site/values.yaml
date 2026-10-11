@@ -1,0 +1,35 @@
+# dirconfig.therobotlives.com — direnv-config landing (single stateless
+# Phoenix/Hologram server on Bandit). Image tags are bumped by CI
+# (bump-chart job), never by hand; ArgoCD auto-syncs @ main.
+fullnameOverride: dirconfig-site
+domain: dirconfig.therobotlives.com
+replicas: 1
+
+# Bootstrap tag until CI's first bump-chart owns sha-<7> on main.
+image: ops.noizu.com/dirconfig.therobotlives.com/web:sha-bf0df47
+
+port: 8160
+imagePullSecrets:
+  - name: ops-registry-secret
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+tls:
+  enabled: true
+  # Reuse the zone origin CA already serving this host (SAN *.therobotlives.com).
+  # Do not mint a second Infisical-owned secret — 526 while it syncs.
+  secretName: therobotlives-com-tls
+  infisical:
+    enabled: false
+
+ingress:
+  enabled: true
+  className: nginx
+  cloudflareOnly: true
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
