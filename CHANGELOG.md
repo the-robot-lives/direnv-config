@@ -1,6 +1,7 @@
 # Changelog — utilities/shell/direnv-config
 
 ## [Unreleased]
+- Release ops: first production release of the dirconfig.therobotlives.com landing site (image `sha-9a1d25c`, bump `5ce55a9`). `build-push` had failed at its `REGISTRY_USER`/`REGISTRY_PASSWORD` guard — neither Actions secret existed on this repo; both were set from the `ops_registry` dc anchor (`secrets registry.ops_user`/`registry.ops_password`), validated against `ops.noizu.com/auth` with push scope before storing, and the failed run was re-run to completion. ArgoCD Application `dirconfig-site` applied (ns `infra`, auto-syncs `helm/dirconfig-site` @ `main` into ns `apps`); `main` → `develop` back-merge (#25, `26514da`) keeps `develop` from regressing the released tag.
 - Docs: refreshed `PROJ-ARCH.md` / `PROJ-LAYOUT.md` and per-directory layout docs (`docs/layout/sdk.md`, `docs/layout/src.md`)
 - Keys: external lockable key file (`$DC_KEYS_FILE` → `~/.config/direnv-config/keys`, 0600) replaces the `key:` embedded in settings.yaml; `dc keys status|migrate|lock|unlock`. Legacy settings.yaml keys read transparently; `migrate` verifies every store token round-trips via the new key file before stripping key material (backup `settings.yaml.pre-keys`). Fail-loud on unreadable/missing key file — never silent legacy fallback.
 
