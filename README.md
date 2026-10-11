@@ -49,6 +49,8 @@ dc_export
 
 ```bash
 dc yaml <name>            # merge YAML from stdin (--replace, --replace-key, --if-missing, --layer)
+dc load <file> [<file>...]  # ingest external YAML file(s): subject -> body, or a subjects: wrapper
+                          # (--layer default for subjects without _dc_layer, plus the yaml flags)
 dc get <name> [path]      # read a value (--raw)
 dc set / unset / bump     # mutate values / version counter
 dc list / status / env    # configs, merge state, resolved env
@@ -59,15 +61,18 @@ dc infisical <sub>        # infisical get|set|compare — sync dc secrets agains
 dc compare <name> <path> --to <target>
 dc bat --all --flat --filter-key <regex>
 dc config / settings      # tool configuration
+                          # dc config get/set/setall now span .envrc* AND loaded files;
+                          # --file <path> forces the destination (validated against known sources)
 dc audit / prune / purge  # hygiene
 dc init                   # scaffold a store
 ```
 
-In `.envrc`: `dc_yaml` (deep merge, preserves sibling keys — the workhorse), `dc_yaml <name> --replace` (overwrite a whole named config's layer), plus export helpers like `dc_export` that flatten per `_dc/` flatten rules. All functions are idempotent.
+In `.envrc`: `dc_yaml` (deep merge, preserves sibling keys — the workhorse), `dc_yaml <name> --replace` (overwrite a whole named config's layer), `dc_load <file>...` (same ingest path for external YAML files; later files win on conflict), plus export helpers like `dc_export` that flatten per `_dc/` flatten rules. All functions are idempotent.
 
 ## How It Works
 
 - Each named config lives in its own store directory with `base.yaml` (git-committable), env overlays, `local.yaml` (personal/IPC writes), `secrets.yaml` (gitignored), `.active` (resolved merge snapshot), and a `.version` counter.
+- Config sources: `dc_yaml` heredocs in `.envrc*` plus any YAML files registered via `dc load` (tracked, with mtime/size, in the store's `.meta`). `dc config get/set` locate keys across both; edits splice the owning file and new keys land in the last-loaded file unless `--file` overrides.
 - Every mutating call regenerates `.active` and writes a timestamped snapshot to `history/`.
 - Flattening rules in `_dc/base.yaml` decide which keys become env vars (`cluster.kubeconfig` → `KUBECONFIG`, etc.).
 - Integrations in `src/`: Infisical sync, Kubernetes (kubeconfig handling), crypto/secret tooling, audit and shadowing.
