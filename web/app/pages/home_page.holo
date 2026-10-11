@@ -266,8 +266,8 @@ dc prune / purge                # hygiene: tombstone inheritance, remove state</
       <article class="card">
         <h3>A published test-health report</h3>
         <p>
-          148 CLI tests plus five SDK suites (Rust, TypeScript, Python, Elixir, PHP) kept
-          aligned by shared contract fixtures — measured 2026-10-07 in
+          171 CLI tests plus five SDK suites (Rust, TypeScript, Python, Elixir, PHP) kept
+          aligned by shared contract fixtures — CLI count re-measured 2026-10-12; see
           <code>docs/TEST-HEALTH.md</code>.
         </p>
       </article>

@@ -58,7 +58,7 @@ as every other Hologram site in the fleet).
 | **One-liner** | direnv-config replaces sprawling `export VAR=value` `.envrc` files with named, layered YAML configs — deep-merged and flattened into environment variables. |
 | **Paragraph** | `dc` is a Rust CLI plus a direnv stdlib extension. Projects declare named configs in a one-liner `.envrc`; values live as layered YAML (`base.yaml` → env overlay → `local.yaml` → `secrets.yaml`) under `~/.local/state/direnv-config/`, deep-merged and flattened into env vars. Config can be `dc_yaml` heredocs, external YAML files loaded with `dc load`, or both. Because state lives in files, any process — parent, child, sibling, a coding agent — can read or mutate shared config; every write bumps a version counter and snapshots to `history/`. Secrets are first-class: gitignored `secrets.yaml`, XChaCha20-Poly1305-encrypted values, generated placeholders, bidirectional Infisical sync. |
 | **Benefit pillars** | One-liner `.envrc` or real YAML files, structured config · File-based state is IPC · Secrets, first-class |
-| **Proof points** | 23 subcommands · 148 CLI tests plus five SDK suites · published THREAT-MODEL.md and TEST-HEALTH.md · runnable `demo/` walkthrough |
+| **Proof points** | 23 subcommands · 171 CLI tests plus five SDK suites · published THREAT-MODEL.md and TEST-HEALTH.md · runnable `demo/` walkthrough |
 
 ## 5. Landing-page copy block (final copy, implemented verbatim)
 
@@ -221,9 +221,9 @@ Trust cards ×3:
 1. **A published threat model.** `docs/THREAT-MODEL.md` walks a STRIDE register — store tampering,
    key exfiltration, log disclosure — and states the residual risk plainly: dc trusts same-user
    processes; the 0600 key file raises the bar, it is not a security boundary.
-2. **A published test-health report.** 148 CLI tests plus five SDK suites (Rust, TypeScript,
-   Python, Elixir, PHP) kept aligned by shared contract fixtures — measured 2026-10-07 in
-   `docs/TEST-HEALTH.md`.
+2. **A published test-health report.** 171 CLI tests plus five SDK suites (Rust, TypeScript,
+   Python, Elixir, PHP) kept aligned by shared contract fixtures — CLI count re-measured
+   2026-10-12; see `docs/TEST-HEALTH.md`.
 3. **Honest defaults.** Secret values are masked in output by default; reveals are written to a
    0600 audit log; remote sync compares digests, not plaintext; nothing leaves the machine
    without an explicit sync command.
@@ -280,7 +280,7 @@ Trust cards ×3:
 | 10 | 23 visible subcommands | `src/main.rs` Commands enum (24 variants; `__complete-purge` hidden) |
 | 11 | `flock` around every read-modify-write; corrupt layers refused not replaced | `CHANGELOG.md` [m8-session-safety-hardening] |
 | 12 | Five SDKs (TS, Python, Elixir, PHP read-only; Rust read+write) with shared contract tests | `docs/PROJ-ARCH.summary.md` |
-| 13 | 148 CLI tests; Rust SDK 71+1; Python 114; Elixir 89 (measured 2026-10-07) | `docs/TEST-HEALTH.md` |
+| 13 | 171 CLI tests; Rust SDK 71+1; Python 114; Elixir 89 (CLI measured 2026-10-12; SDKs 2026-10-07) | `docs/TEST-HEALTH.md` |
 | 14 | Published STRIDE threat model with stated residual risk (same-user trust) | `docs/THREAT-MODEL.summary.md` |
 | 15 | Runnable demo tree with expected-state fixtures | `demo/README.md` |
 | 16 | Install = clone + `make compile/test/install/install-completions/doctor`; prereqs direnv + Rust | `README.md`, `Makefile` |

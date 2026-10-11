@@ -1,5 +1,5 @@
 # Test Health — direnv-config
-_Last measured: 2026-10-07 · branch develop@4faa4a1_
+_Last measured: 2026-10-12 · CLI re-measured on `feature/landing-page@399614a` (`cargo test`: 171 passed, 0 failed); SDK counts unchanged from 2026-10-07 · earlier baseline: develop@4faa4a1_
 
 Rust CLI (`dc`) plus five SDKs (Rust, TypeScript, Python, Elixir, PHP). No docker image; the CLI
 is installed locally via `make install`, SDKs publish on `sdk-v*` tags (`publish-sdks.yml`).
@@ -11,7 +11,7 @@ is installed locally via `make install`, SDKs publish on `sdk-v*` tags (`publish
 | CI acceptance test job (warm / cold) | Rust CLI `cargo test` 28–30s cold (compile-dominated) | rust-cache; see report |
 | Local full-suite runtime (uptime load) | CLI `cargo test` 41s incl. compile, tests 0.01s (load 27.7) | unchanged |
 | Docker build (warm / cold) | n.a. | n.a. |
-| Tests in acceptance / slow tier | CLI 148 · Rust SDK 71+1 · Python 114 · Elixir 89 · TS/PHP suites (7 files each) / 0 slow | same / 0 |
+| Tests in acceptance / slow tier | CLI 148 · Rust SDK 71+1 · Python 114 · Elixir 89 · TS/PHP suites (7 files each) / 0 slow | CLI 171 (re-measured 2026-10-12) · SDK counts from 2026-10-07 / 0 slow |
 | Async modules / total | n.a. (Rust tests run threaded by default) | n.a. |
 | Coverage — acceptance pass | not measured | CLI 55.65% · Rust SDK 84.45% · Python 66% · Elixir 52.41% (lines) |
 | Coverage — full pass | = acceptance | = acceptance |

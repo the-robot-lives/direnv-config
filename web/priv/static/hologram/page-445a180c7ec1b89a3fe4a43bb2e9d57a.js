@@ -318,8 +318,8 @@ dc prune / purge                # hygiene: tombstone inheritance, remove state`)
       `)]),t.tuple([t.atom("element"),t.bitstring("article"),t.list([t.tuple([t.bitstring("class"),t.list([t.tuple([t.atom("text"),t.bitstring("card")])])])]),t.list([t.tuple([t.atom("text"),t.bitstring(`
         `)]),t.tuple([t.atom("element"),t.bitstring("h3"),t.list([]),t.list([t.tuple([t.atom("text"),t.bitstring("A published test-health report")])])]),t.tuple([t.atom("text"),t.bitstring(`
         `)]),t.tuple([t.atom("element"),t.bitstring("p"),t.list([]),t.list([t.tuple([t.atom("text"),t.bitstring(`
-          148 CLI tests plus five SDK suites (Rust, TypeScript, Python, Elixir, PHP) kept
-          aligned by shared contract fixtures \u2014 measured 2026-10-07 in
+          171 CLI tests plus five SDK suites (Rust, TypeScript, Python, Elixir, PHP) kept
+          aligned by shared contract fixtures \u2014 CLI count re-measured 2026-10-12; see
           `)]),t.tuple([t.atom("element"),t.bitstring("code"),t.list([]),t.list([t.tuple([t.atom("text"),t.bitstring("docs/TEST-HEALTH.md")])])]),t.tuple([t.atom("text"),t.bitstring(`.
         `)])])]),t.tuple([t.atom("text"),t.bitstring(`
       `)])])]),t.tuple([t.atom("text"),t.bitstring(`
@@ -453,4 +453,4 @@ make install && make doctor`)])])])])]),t.tuple([t.atom("text"),t.bitstring(`
 `)]),e.case(e.case(e.dotOperator(n.vars.vars_0,t.atom("page_mounted?")),[{match:t.variablePattern("x_8"),guards:[i=>Erlang["orelse/2"](l=>Erlang["=:=/2"](l.vars.x_8,t.atom("false")),l=>Erlang["=:=/2"](l.vars.x_8,t.atom("nil")),i)],body:i=>t.atom("true")},{match:t.matchPlaceholder(),guards:[],body:i=>t.atom("false")}],n),[{match:t.atom("false"),guards:[],body:i=>t.atom("nil")},{match:t.atom("true"),guards:[],body:i=>t.list([t.tuple([t.atom("text"),t.bitstring(`
   `)]),t.tuple([t.atom("element"),t.bitstring("script"),t.list([t.tuple([t.bitstring("async"),t.list([])]),t.tuple([t.bitstring("src"),t.list([t.tuple([t.atom("expression"),t.tuple([Elixir_Hologram_Router_Helpers["page_bundle_path/1"](e.dotOperator(i.vars.vars_0,t.atom("page_digest")))])])])])]),t.list([])]),t.tuple([t.atom("text"),t.bitstring(`
 `)])])}],n)]))}],s),e.updateVarsToMatchedValues(s),globalThis.Hologram.return)}])};globalThis.Hologram.pageScriptLoaded=!0;document.dispatchEvent(new CustomEvent("hologram:pageScriptLoaded"));console.debug("Hologram: page script executed in",r.diff(u));})();
-//# sourceMappingURL=page-cb47d1bc8ac011ddb87153fbc658074e.js.map
+//# sourceMappingURL=page-445a180c7ec1b89a3fe4a43bb2e9d57a.js.map
