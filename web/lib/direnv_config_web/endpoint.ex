@@ -14,10 +14,10 @@ defmodule DirenvConfigWeb.Endpoint do
     pass: ["*/*"],
     json_decoder: Jason
 
-  plug Plug.Session,
-    store: :cookie,
-    key: "_direnv_config_web_key",
-    signing_salt: "direnvConfigWeb"
+  # Plug options are evaluated at compile time, so the session's signing salt
+  # is read at runtime by DirenvConfigWeb.Plugs.Session instead of being
+  # committed here as a literal.
+  plug DirenvConfigWeb.Plugs.Session
 
   # Hologram's router must run BEFORE the Phoenix router.
   plug Hologram.Router

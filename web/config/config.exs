@@ -5,16 +5,23 @@ config :direnv_config_web, DirenvConfigWeb.Endpoint,
   adapter: Bandit.PhoenixAdapter,
   render_errors: [formats: [html: DirenvConfigWeb.ErrorHTML], layout: false],
   pubsub_server: DirenvConfigWeb.PubSub,
-  live_view: [signing_salt: "direnvConfigWeb"],
-  secret_key_base: "dC8wQ3eR7tY1uI5oP9aS2dF4gH6jK8lZ0xC1vB3nM5qW7eR9tY2uI4oP6aS8dFgHk",
   http: [ip: {127, 0, 0, 1}, port: 8160],
   server: true
+
+# Secret material (secret_key_base + signing salts) is injected or generated
+# per boot in runtime.exs — nothing secret is committed here.
+#
+# Plug options in endpoint.ex are evaluated at compile time, so plugs that
+# need boot-time values read them inside init/1; runtime init mode makes that
+# init run when the endpoint serves instead of when it compiles.
+config :phoenix, :plug_init_mode, :runtime
 
 config :phoenix, :json_library, Jason
 
 config :logger, level: :info
 
-# Runtime overrides (PORT / BIND_IP / PHX_HOST) — prod only, see runtime.exs.
+# Runtime config: secrets for every env, prod overrides (PORT / BIND_IP /
+# PHX_HOST) — see runtime.exs.
 import_config "runtime.exs"
 
 # Test overrides (no HTTP listener).
