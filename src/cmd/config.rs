@@ -61,7 +61,7 @@ fn find_locs_in(
     for ef in external {
         if !ef.path.exists() {
             eprintln!(
-                "warning: registered external file {} has vanished — skipping (re-run `dc load` or edit the registry)",
+                "warning: registered external file {} has vanished — skipping (re-run `dc load`; deregistration is not yet supported)",
                 ef.path.display()
             );
             continue;
@@ -465,7 +465,7 @@ fn refresh_store(subject: &str, edited: Option<&Path>) -> Result<()> {
         }
         if !ef.path.exists() {
             eprintln!(
-                "warning: registered external file {} has vanished — skipping (re-run `dc load` or edit the registry)",
+                "warning: registered external file {} has vanished — skipping (re-run `dc load`; deregistration is not yet supported)",
                 ef.path.display()
             );
             continue;
@@ -594,7 +594,7 @@ fn set_errata(
         let mut lines = if is_external {
             if !f.exists() {
                 eprintln!(
-                    "warning: registered external file {} has vanished — skipping (re-run `dc load` or edit the registry)",
+                    "warning: registered external file {} has vanished — skipping (re-run `dc load`; deregistration is not yet supported)",
                     f.display()
                 );
                 continue;
@@ -638,7 +638,7 @@ fn set_errata(
         }
         lines.insert(idx, new_line);
         write_lines(f, &lines)?;
-        println!("inserted {subject} {path} at {}:{}", f.display(), idx + 1);
+        eprintln!("inserted {subject} {path} at {}:{}", f.display(), idx + 1);
         refresh_store(subject, Some(f))?;
         return Ok(());
     }
@@ -674,7 +674,7 @@ pub fn setall(
         let mut lines = if is_external {
             if !f.exists() {
                 eprintln!(
-                    "warning: registered external file {} has vanished — skipping (re-run `dc load` or edit the registry)",
+                    "warning: registered external file {} has vanished — skipping (re-run `dc load`; deregistration is not yet supported)",
                     f.display()
                 );
                 continue;
@@ -744,7 +744,7 @@ pub fn setall(
         out.extend_from_slice(&lines[insert_at..]);
         lines = out;
         write_lines(&f, &lines)?;
-        println!("inserted section at {}:{}", f.display(), insert_at + 1);
+        eprintln!("inserted section at {}:{}", f.display(), insert_at + 1);
         refresh_store(layer_subject, Some(&f))?;
         return Ok(());
     }
@@ -1045,6 +1045,8 @@ mod tests {
 
     /// Restore process-global state (CWD + XDG_STATE_HOME) when dropped, so a
     /// panicking test does not poison the rest of the suite.
+    /// Serializes e2e tests that mutate process-wide state (CWD + XDG_STATE_HOME).
+    static REFRESH_E2E_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
     struct EnvGuard {
         cwd: PathBuf,
         xdg: Option<String>,
@@ -1070,7 +1072,58 @@ mod tests {
     }
 
     #[test]
+    fn refresh_store_honors_per_subject_dc_layer_routing() {
+        let _env_lock = REFRESH_E2E_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = EnvGuard::capture();
+
+        let tmp = TempDir::new().unwrap();
+        let proj = std::fs::canonicalize({
+            std::fs::create_dir_all(tmp.path().join("proj")).unwrap();
+            tmp.path().join("proj")
+        })
+        .unwrap();
+        // canonicalize so the store hash from `ensure_store(&proj)` matches
+        // the one `find_current_store` computes from the OS-resolved CWD
+        // (macOS $TMPDIR is a /var -> /private/var symlink).
+        std::fs::write(
+            proj.join("team.yaml"),
+            "app:\n  _dc_layer: staging\n  runner: linux\n",
+        )
+        .unwrap();
+
+        let state = tmp.path().join("state");
+        std::fs::create_dir_all(&state).unwrap();
+        std::env::set_var("XDG_STATE_HOME", &state);
+        std::env::set_current_dir(&proj).unwrap();
+        let store = crate::store::layout::ensure_store(&proj).unwrap();
+
+        let files = vec![proj.join("team.yaml")];
+        crate::cmd::load::load_files(
+            &store,
+            &files,
+            &crate::cmd::load::IngestOpts::default(),
+            &|| Ok([0u8; 32]),
+        )
+        .unwrap();
+
+        // A refresh triggered by editing any source must keep routing the
+        // subject through the body's `_dc_layer`, not the file default.
+        refresh_store("app", None).unwrap();
+
+        let staging = crate::store::load_layer(&crate::store::layout::layer_path(&store, "app", "staging"))
+            .unwrap();
+        assert_eq!(staging.get("runner"), Some(&serde_yaml::Value::String("linux".into())));
+        let base_path = crate::store::layout::layer_path(&store, "app", "base");
+        assert!(
+            !base_path.exists(),
+            "`_dc_layer: staging` subject must not land in base.yaml on refresh"
+        );
+    }
+
+    #[test]
     fn refresh_store_does_not_revert_store_owned_values_after_if_missing_load() {
+        let _env_lock = REFRESH_E2E_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = EnvGuard::capture();
         let tmp = TempDir::new().unwrap();
         let proj = std::fs::canonicalize({
             std::fs::create_dir_all(tmp.path().join("proj")).unwrap();

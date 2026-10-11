@@ -28,7 +28,8 @@ Within a layer, ingest order decides (last source to write a key wins — no
 "inline beats external" rule). `dc config get/set` span `.envrc*` and the
 registered external files: splices preserve comments, ambiguity (two files)
 refuses naming candidates, new keys land in the last-loaded file unless
-`--file <path>` overrides; vanished registered files warn, not fail.
+`--file <path>` overrides; the registry is append-only today (deregistration
+not yet supported, #15); vanished registered files warn, not fail.
 
 ## Markers
 
