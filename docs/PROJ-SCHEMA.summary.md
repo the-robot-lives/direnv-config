@@ -9,6 +9,7 @@
 | Artifact | Location | Role |
 |----------|----------|------|
 | `.envrc` | each project dir | Source of truth; `dc_yaml <name> <<'YAML'` heredoc per named config |
+| External YAML files | anywhere; registered in store `.meta` `external:` (path+mtime+size, load order) | `dc load`/`dc_load` ingest: root mapping subject→body or `subjects:` wrapper; `_dc_layer:` routes per subject; same 🔒 encryption; later files win |
 | State store | `$XDG_STATE_HOME/direnv-config/<path-hash>/` | Per-directory resolved config; `.version`, `.meta`, `<config>/{base,{DC_ENV},local,secrets}.yaml`, `.active`, `history/` |
 | Secret token | `secrets.yaml` layer | `🔒:v1:<ciphertext>` — XChaCha20-Poly1305; `❗`×0–3 tiers |
 | Key file | `~/.config/direnv-config/keys` (0600) | `{version: 1, key: base64-32}`; wins exclusively when present; `dc keys` status/migrate/lock/unlock |
@@ -23,6 +24,12 @@
 parent-chain merge ancestor-first. Maps deep-merge; sequences/scalars replace;
 `_dc_pruned: true` tombstones prune (root-level = break inheritance).
 
+Within a layer, ingest order decides (last source to write a key wins — no
+"inline beats external" rule). `dc config get/set` span `.envrc*` and the
+registered external files: splices preserve comments, ambiguity (two files)
+refuses naming candidates, new keys land in the last-loaded file unless
+`--file <path>` overrides; vanished registered files warn, not fail.
+
 ## Markers
 
 `🔒` secret · `❗`×0–3 tier · `🎲` generator placeholder · `⛔` restricted sentinel
@@ -36,6 +43,7 @@ parent-chain merge ancestor-first. Maps deep-merge; sequences/scalars replace;
 ```mermaid
 graph LR
     ENVRC[".envrc heredocs"] --> STORE["state store"]
+    EXT["external YAML files (dc load, .meta registry)"] --> STORE
     ENVRC --> SECRETS["secrets.yaml 🔒:v1"]
     ENVRC --> SHADOW["shadow store ⛔"]
     STORE --> ACTIVE[".active"]
