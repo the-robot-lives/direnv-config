@@ -11,12 +11,6 @@ use std::path::{Path, PathBuf};
 use crate::envrc::locator::{self, KeyLoc};
 use crate::secret::PADLOCK;
 
-fn source_dir() -> Result<PathBuf> {
-    let store = crate::store::find_current_store()?;
-    let meta = crate::store::meta::read_meta(&store)?;
-    Ok(meta.source)
-}
-
 fn read_lines(path: &Path) -> Result<Vec<String>> {
     let content = std::fs::read_to_string(path)?;
     Ok(content.lines().map(|s| s.to_string()).collect())
@@ -38,11 +32,24 @@ fn leaf_key(path: &str) -> &str {
     path.rsplit('.').next().unwrap_or(path)
 }
 
-/// Find all source locations for a subject/path across `.envrc*` files.
+/// Find all source locations for a subject/path across `.envrc*` files and
+/// registered external (`dc load`) files.
 fn find_locs(subject: &str, path: &str) -> Result<Vec<KeyLoc>> {
-    let dir = source_dir()?;
+    let store = crate::store::find_current_store()?;
+    let meta = crate::store::meta::read_meta(&store)?;
+    Ok(find_locs_in(&meta.source, &meta.external, subject, path))
+}
+
+/// Pure lookup over a source dir plus a registry of external files. Vanished
+/// external files warn (staleness) but do not fail the lookup.
+fn find_locs_in(
+    dir: &Path,
+    external: &[crate::store::meta::ExternalFile],
+    subject: &str,
+    path: &str,
+) -> Vec<KeyLoc> {
     let mut matches = Vec::new();
-    for f in locator::envrc_files(&dir) {
+    for f in locator::envrc_files(dir) {
         if let Ok(locs) = locator::index_file(&f) {
             for l in locs {
                 if l.subject == subject && l.path == path {
@@ -51,7 +58,72 @@ fn find_locs(subject: &str, path: &str) -> Result<Vec<KeyLoc>> {
             }
         }
     }
-    Ok(matches)
+    for ef in external {
+        if !ef.path.exists() {
+            eprintln!(
+                "warning: registered external file {} has vanished — skipping (re-run `dc load` or edit the registry)",
+                ef.path.display()
+            );
+            continue;
+        }
+        if let Ok(locs) = locator::index_external(&ef.path) {
+            for l in locs {
+                if l.subject == subject && l.path == path {
+                    matches.push(l);
+                }
+            }
+        }
+    }
+    matches
+}
+
+/// Compare two paths, following symlinks when both exist.
+fn same_path(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(ca), Ok(cb)) => ca == cb,
+        _ => false,
+    }
+}
+
+/// Resolve a `--file` override to an absolute path, validating it is a known
+/// source: a registered external file or an `.envrc*` file in the source dir.
+fn resolve_forced_file(file: &str) -> Result<PathBuf> {
+    let store = crate::store::find_current_store()?;
+    let meta = crate::store::meta::read_meta(&store)?;
+    let target = std::fs::canonicalize(file)
+        .map_err(|e| anyhow::anyhow!("--file {file}: {e}"))?;
+    let known = meta.external.iter().any(|e| same_path(&e.path, &target))
+        || locator::envrc_files(&meta.source).iter().any(|f| same_path(f, &target));
+    if !known {
+        let registered: Vec<String> =
+            meta.external.iter().map(|e| e.path.display().to_string()).collect();
+        bail!(
+            "--file {} is not a registered/loaded source (registered external files: {})",
+            file,
+            if registered.is_empty() { "none".to_string() } else { registered.join(", ") }
+        );
+    }
+    Ok(target)
+}
+
+/// Errata candidate files for a new-key insert: the forced file when given,
+/// else registered externals in reverse load order (last-loaded first),
+/// then `.envrc*` files (the pre-external behaviour, last).
+fn errata_candidates(
+    external: &[crate::store::meta::ExternalFile],
+    dir: &Path,
+    forced: Option<&Path>,
+) -> Vec<PathBuf> {
+    if let Some(f) = forced {
+        return vec![f.to_path_buf()];
+    }
+    let mut out: Vec<PathBuf> = external.iter().map(|e| e.path.clone()).collect();
+    out.reverse();
+    out.extend(locator::envrc_files(dir));
+    out
 }
 
 /// Current raw value text for a location (block scalars joined).
@@ -174,6 +246,71 @@ fn acquire_value(value: Option<&str>, from: Option<&str>, stdin: bool) -> Result
     Ok(buf.trim_end_matches('\n').to_string())
 }
 
+/// Compute an errata insertion `(index, line)` for a missing leaf in an
+/// external plain-YAML file, mirroring [`errata_compute`] for the extra
+/// subject-indentation level. `spans` covers subjects with empty bodies too.
+fn external_errata_compute(
+    lines: &[String],
+    locs: &[KeyLoc],
+    spans: &[locator::SubjectSpan],
+    subject: &str,
+    path: &str,
+    tier: u8,
+    token: &str,
+) -> Option<(usize, String)> {
+    let leaf = leaf_key(path);
+    let parent = path.rsplit_once('.').map(|(p, _)| p);
+    let subject_locs: Vec<&KeyLoc> = locs.iter().filter(|l| l.subject == subject).collect();
+
+    match parent {
+        Some(p) => {
+            let span = spans.iter().find(|s| s.name == subject)?;
+            let ploc = subject_locs.iter().find(|l| l.path == p)?;
+            // Find the end of the parent's subtree (bounded by the subject's body).
+            let mut idx = if ploc.is_block_scalar {
+                ploc.value_end + 1
+            } else {
+                ploc.key_line + 1
+            };
+            while idx < span.body.end {
+                let lt = lines[idx].trim_start();
+                if lt.is_empty() || lt.starts_with('#') {
+                    idx += 1;
+                    continue;
+                }
+                let ind = lines[idx].len() - lt.len();
+                if ind > ploc.indent {
+                    idx += 1;
+                } else {
+                    break;
+                }
+            }
+            let line = format!(
+                "{}{}: \"{} {}\"",
+                " ".repeat(ploc.indent + 2),
+                leaf,
+                marker(tier),
+                token
+            );
+            Some((idx, line))
+        }
+        None => {
+            // Top-level within the subject body: insert after its last key
+            // (or right after the subject line for an empty body).
+            let span = spans.iter().find(|s| s.name == subject)?;
+            let body_indent = span.child_indent.unwrap_or(span.indent + 2);
+            let idx = subject_locs
+                .iter()
+                .map(|l| if l.is_block_scalar { l.value_end } else { l.key_line })
+                .max()
+                .map(|last| last + 1)
+                .unwrap_or(span.key_line + 1);
+            let line = format!("{}{}: \"{} {}\"", " ".repeat(body_indent), leaf, marker(tier), token);
+            Some((idx, line))
+        }
+    }
+}
+
 /// Ask a y/N question on stdin. Errors (instead of reading EOF as "no") when
 /// stdin is not a terminal, so non-interactive callers must pass `--yes`.
 pub(crate) fn confirm(prompt: &str) -> Result<bool> {
@@ -240,18 +377,25 @@ pub(crate) fn write_sentinel(subject: &str, path: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// Re-ingest every `dc_yaml … <subject>` heredoc across all `.envrc*` files in
-/// the source dir into the store (same file order as `envrc_files`), the way
-/// direnv sourcing would. Without this, `dc get` and
-/// `infisical-populate-secrets` keep serving the pre-edit value until the shell
-/// re-sources the files.
-fn refresh_store(subject: &str) -> Result<()> {
+/// Re-ingest every source for a subject into the store — `dc_yaml … <subject>`
+/// heredocs across `.envrc*` files (same order as `envrc_files`) and the
+/// subject's bodies from registered external files (registry order = load
+/// order) — the way direnv re-sourcing the `.envrc` would. The file just
+/// edited (`edited`) is ingested last so its keys win over stale duplicates
+/// in other sources. Without this, `dc get` and `infisical-populate-secrets`
+/// keep serving the pre-edit value until the shell re-sources the files.
+fn refresh_store(subject: &str, edited: Option<&Path>) -> Result<()> {
     let store = crate::store::find_current_store()?;
     let _lock = crate::store::lock_store(&store)?;
-    for file in locator::envrc_files(&source_dir()?) {
+    let meta = crate::store::meta::read_meta(&store)?;
+    let dir = meta.source.clone();
+
+    // Gather (source file, body, default layer) jobs for this subject.
+    // `--if-missing` heredoc blocks seed the store once and are store-owned
+    // afterwards (e.g. generated `auto` values); re-ingesting would clobber them.
+    let mut jobs: Vec<(PathBuf, serde_yaml::Value, String)> = Vec::new();
+    for file in locator::envrc_files(&dir) {
         let lines = read_lines(&file)?;
-        // `--if-missing` blocks seed the store once and are store-owned afterwards
-        // (e.g. generated `auto` values); re-ingesting would clobber them.
         let blocks = locator::scan_blocks(&lines);
         for block in blocks
             .iter()
@@ -259,12 +403,37 @@ fn refresh_store(subject: &str) -> Result<()> {
         {
             let body = lines[block.body.clone()].join("\n");
             let input: serde_yaml::Value = serde_yaml::from_str(&body)?;
-            let (plain, secrets) = crate::secret::split_secrets(&input);
-            let key = if secrets.is_empty() { None } else { Some(crate::settings::key()?) };
-            let layer = block.layer.as_deref().unwrap_or("base");
-            crate::cmd::yaml::apply(&store, subject, layer, &plain, &secrets, key.as_ref(), false, None)?;
+            jobs.push((
+                file.clone(),
+                input,
+                block.layer.clone().unwrap_or_else(|| "base".to_string()),
+            ));
         }
     }
+    for ef in &meta.external {
+        if !ef.path.exists() {
+            eprintln!(
+                "warning: registered external file {} has vanished — skipping (re-run `dc load` or edit the registry)",
+                ef.path.display()
+            );
+            continue;
+        }
+        let content = std::fs::read_to_string(&ef.path)?;
+        let doc: serde_yaml::Value = serde_yaml::from_str(&content)?;
+        for (subj, body) in crate::cmd::load::parse_subjects(&ef.path, &doc)? {
+            if subj == subject {
+                jobs.push((ef.path.clone(), body, "base".to_string()));
+            }
+        }
+    }
+    // The edited source ingests last (stable sort keeps the rest in order).
+    jobs.sort_by_key(|(f, _, _)| edited.is_some_and(|e| same_path(f, e)));
+
+    for (_, body, layer) in &jobs {
+        let opts = crate::cmd::load::IngestOpts { layer: Some(layer), ..Default::default() };
+        crate::cmd::load::ingest_subject(&store, subject, body, &opts, &crate::settings::key)?;
+    }
+
     crate::store::resolve::resolve_active(&store, subject)?;
     crate::store::meta::update_configs_list(&store)?;
     Ok(())
@@ -301,22 +470,31 @@ pub fn set(
     stdin_flag: bool,
     encrypted: bool,
     yes: bool,
+    file: Option<&str>,
 ) -> Result<()> {
     let plaintext = acquire_value(value, from, stdin_flag)?;
     // Using stdin for the value means we cannot also prompt on stdin.
     let yes = yes || stdin_flag;
 
-    let locs = find_locs(subject, path)?;
+    let forced = match file {
+        Some(f) => Some(resolve_forced_file(f)?),
+        None => None,
+    };
+
+    let mut locs = find_locs(subject, path)?;
+    if let Some(target) = &forced {
+        locs.retain(|l| same_path(&l.file, target));
+    }
     if locs.len() > 1 {
         eprintln!("ambiguous — `{subject} {path}` matches multiple locations:");
         for l in &locs {
             eprintln!("  {}:{}", l.file.display(), l.key_line + 1);
         }
-        bail!("narrow the path or edit the file directly");
+        bail!("narrow the path, edit the file directly, or force one with --file <path>");
     }
 
     if locs.is_empty() {
-        return set_errata(subject, path, &plaintext, encrypted, yes);
+        return set_errata(subject, path, &plaintext, encrypted, yes, forced.as_deref());
     }
 
     let loc = &locs[0];
@@ -338,25 +516,67 @@ pub fn set(
     lines = splice_set(&lines, loc, new_line);
     write_lines(&loc.file, &lines)?;
     println!("updated {}:{}", loc.file.display(), loc.key_line + 1);
-    refresh_store(subject)?;
+    refresh_store(subject, Some(&loc.file))?;
     Ok(())
 }
 
-fn set_errata(subject: &str, path: &str, plaintext: &str, encrypted: bool, yes: bool) -> Result<()> {
-    let dir = source_dir()?;
-    for f in locator::envrc_files(&dir) {
-        let mut lines = read_lines(&f)?;
-        if !locator::scan_blocks(&lines).iter().any(|b| b.subject == subject) {
-            continue;
-        }
+/// Insert a new key for a subject that has no location for it yet. External
+/// (registered) files are considered first in reverse load order — so new
+/// keys land in the last-loaded file — then `.envrc*` heredocs. A `forced`
+/// file (from `--file`) pins the destination.
+#[allow(clippy::too_many_arguments)]
+fn set_errata(
+    subject: &str,
+    path: &str,
+    plaintext: &str,
+    encrypted: bool,
+    yes: bool,
+    forced: Option<&Path>,
+) -> Result<()> {
+    let store = crate::store::find_current_store()?;
+    let meta = crate::store::meta::read_meta(&store)?;
+    let dir = meta.source.clone();
+
+    let candidates = errata_candidates(&meta.external, &dir, forced);
+    for f in &candidates {
+        let is_external = meta.external.iter().any(|e| same_path(&e.path, f));
+        let mut lines = if is_external {
+            if !f.exists() {
+                eprintln!(
+                    "warning: registered external file {} has vanished — skipping (re-run `dc load` or edit the registry)",
+                    f.display()
+                );
+                continue;
+            }
+            // subject must exist in this external file
+            let lines = read_lines(f)?;
+            if !locator::external_subject_spans(&lines).iter().any(|s| s.name == subject) {
+                continue;
+            }
+            lines
+        } else {
+            let lines = read_lines(f)?;
+            if !locator::scan_blocks(&lines).iter().any(|b| b.subject == subject) {
+                continue;
+            }
+            lines
+        };
         let token = if encrypted {
             plaintext.to_string()
         } else {
             crate::crypto::encode_token(plaintext, 0, &crate::settings::key()?)?
         };
-        let Some((idx, new_line)) = errata_compute(&lines, subject, path, 0, &token) else {
+        let computed = if is_external {
+            let spans = locator::external_subject_spans(&lines);
+            let locs = locator::index_external_lines(&lines, f);
+            external_errata_compute(&lines, &locs, &spans, subject, path, 0, &token)
+        } else {
+            errata_compute(&lines, subject, path, 0, &token)
+        };
+        let Some((idx, new_line)) = computed else {
             bail!(
-                "subject `{subject}` exists but parent of `{path}` was not found — use `dc config setall`"
+                "subject `{subject}` exists in {} but parent of `{path}` was not found — use `dc config setall`",
+                f.display()
             );
         };
         let display = redact_for_display(&new_line);
@@ -366,12 +586,15 @@ fn set_errata(subject: &str, path: &str, plaintext: &str, encrypted: bool, yes: 
             bail!("aborted — no changes written");
         }
         lines.insert(idx, new_line);
-        write_lines(&f, &lines)?;
+        write_lines(f, &lines)?;
         println!("inserted {subject} {path} at {}:{}", f.display(), idx + 1);
-        refresh_store(subject)?;
+        refresh_store(subject, Some(f))?;
         return Ok(());
     }
-    bail!("no `dc_yaml … {subject}` block found in any .envrc* file — use `dc config setall`")
+    if let Some(f) = forced {
+        bail!("subject `{subject}` not found in {}", f.display());
+    }
+    bail!("no `dc_yaml … {subject}` block or registered external subject `{subject}` found — use `dc config setall` or `dc load`")
 }
 
 /// Insert a YAML section relative to an anchor entry.
@@ -383,15 +606,56 @@ pub fn setall(
     anchor_path: &str,
     below: bool,
     yes: bool,
+    file: Option<&str>,
 ) -> Result<()> {
-    let dir = source_dir()?;
-    for f in locator::envrc_files(&dir) {
-        let mut lines = read_lines(&f)?;
-        let blocks = locator::scan_blocks(&lines);
-        let Some(block) = blocks.iter().find(|b| b.subject == layer_subject) else {
-            continue;
+    let store = crate::store::find_current_store()?;
+    let meta = crate::store::meta::read_meta(&store)?;
+    let dir = meta.source.clone();
+    let forced = match file {
+        Some(f) => Some(resolve_forced_file(f)?),
+        None => None,
+    };
+
+    // Registered external files (reverse load order — last-loaded first), then
+    // `.envrc*` files, unless --file pins the destination.
+    for f in errata_candidates(&meta.external, &dir, forced.as_deref()) {
+        let is_external = meta.external.iter().any(|e| same_path(&e.path, &f));
+        let mut lines = if is_external {
+            if !f.exists() {
+                eprintln!(
+                    "warning: registered external file {} has vanished — skipping (re-run `dc load` or edit the registry)",
+                    f.display()
+                );
+                continue;
+            }
+            let lines = read_lines(&f)?;
+            if !locator::scan_blocks(&lines).iter().any(|b| b.subject == layer_subject)
+                && !locator::index_external_lines(&lines, &f)
+                    .iter()
+                    .any(|l| l.subject == layer_subject)
+            {
+                continue;
+            }
+            lines
+        } else {
+            let lines = read_lines(&f)?;
+            if !locator::scan_blocks(&lines).iter().any(|b| b.subject == layer_subject) {
+                continue;
+            }
+            lines
         };
-        let locs = locator::index_block(block, &lines, &f);
+        let locs = if is_external {
+            locator::index_external_lines(&lines, &f)
+                .into_iter()
+                .filter(|l| l.subject == layer_subject)
+                .collect()
+        } else {
+            let blocks = locator::scan_blocks(&lines);
+            let Some(block) = blocks.iter().find(|b| b.subject == layer_subject) else {
+                continue;
+            };
+            locator::index_block(block, &lines, &f)
+        };
         // The anchor must belong to the requested subject too (we edit one block).
         let _ = anchor_subject;
         let Some(anchor) = locs.iter().find(|l| l.path == anchor_path) else {
@@ -430,10 +694,12 @@ pub fn setall(
         lines = out;
         write_lines(&f, &lines)?;
         println!("inserted section at {}:{}", f.display(), insert_at + 1);
-        refresh_store(layer_subject)?;
+        refresh_store(layer_subject, Some(&f))?;
         return Ok(());
     }
-    bail!("anchor `{anchor_subject} {anchor_path}` not found in any .envrc* file")
+    bail!(
+        "anchor `{anchor_subject} {anchor_path}` not found in any registered external file or .envrc* file"
+    )
 }
 
 #[cfg(test)]
@@ -532,5 +798,135 @@ mod tests {
         let (idx, line) = errata_compute(&src, "cf", "api_token", 0, &token).unwrap();
         assert_eq!(idx, 2); // the YAML terminator line index
         assert!(line.starts_with("api_token: \"🔒 🔒:v1:"));
+    }
+
+    // ---- external-file routing (dc load provenance) ----
+
+    use crate::store::meta::ExternalFile;
+    use tempfile::TempDir;
+
+    fn ext(p: &std::path::Path) -> ExternalFile {
+        ExternalFile { path: p.to_path_buf(), mtime: 0, size: 0 }
+    }
+
+    #[test]
+    fn find_locs_in_spans_envrc_and_registered_external() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        std::fs::write(dir.join(".envrc"), "dc_yaml --no-bump app <<'YAML'\nhost: local\nYAML\n").unwrap();
+        let extfile = dir.join("team.yaml");
+        std::fs::write(&extfile, "app:\n  # db config\n  db:\n    host: \"🔒❗ tok\"\n").unwrap();
+        let external = vec![ext(&extfile)];
+
+        let locs = find_locs_in(dir, &external, "app", "db.host");
+        assert_eq!(locs.len(), 1, "external hit expected");
+        assert_eq!(locs[0].file, extfile);
+        assert_eq!(locs[0].key_line, 3); // 0-indexed: app=0, comment=1, db=2, host=3
+        assert_eq!(locs[0].layer, None);
+
+        // a vanished registered file warns + skips; .envrc* locs still found
+        let gone = dir.join("gone.yaml");
+        let external2 = vec![ext(&gone), ext(&extfile)];
+        let locs2 = find_locs_in(dir, &external2, "app", "host");
+        assert_eq!(locs2.len(), 1);
+        assert!(locs2[0].file.ends_with(".envrc"), "{}", locs2[0].file.display());
+        assert_eq!(locs2[0].key_line, 1);
+    }
+
+    #[test]
+    fn find_locs_in_ambiguous_two_files_names_both_candidates() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        let a = dir.join("a.yaml");
+        let b = dir.join("b.yaml");
+        std::fs::write(&a, "app:\n  host: one\n").unwrap();
+        std::fs::write(&b, "app:\n  host: two\n").unwrap();
+        let external = vec![ext(&a), ext(&b)];
+
+        let locs = find_locs_in(dir, &external, "app", "host");
+        // both candidates survive with distinct file:line (what the refusal lists)
+        assert_eq!(locs.len(), 2, "expected ambiguous pair");
+        assert_eq!(locs[0].file, a);
+        assert_eq!(locs[0].key_line, 1);
+        assert_eq!(locs[1].file, b);
+        assert_eq!(locs[1].key_line, 1);
+    }
+
+    #[test]
+    fn set_splices_external_file_preserving_comments_and_siblings() {
+        let tmp = TempDir::new().unwrap();
+        let extfile = tmp.path().join("t.yaml");
+        std::fs::write(
+            &extfile,
+            "app:\n  # tuning\n  pool: 5\n  host: \"🔒❗ old-tok\"\n  # trailing note\n",
+        )
+        .unwrap();
+        let lines = read_lines(&extfile).unwrap();
+        let locs = locator::index_external_lines(&lines, &extfile);
+        let loc = locs.iter().find(|l| l.path == "host").expect("host loc");
+        let tier = existing_tier(&lines, loc);
+        let token = crate::crypto::encode_token("NEWVAL", tier, &KEY).unwrap();
+        let new_line = compute_set_line(loc, tier, &token);
+        let out = splice_set(&lines, loc, new_line);
+
+        assert_eq!(out.len(), 5, "line count unchanged");
+        assert_eq!(out[0], "app:");
+        assert_eq!(out[1], "  # tuning");
+        assert_eq!(out[2], "  pool: 5");
+        assert!(out[3].starts_with("  host: \""), "host line replaced in place");
+        assert!(!out[3].contains("old-tok"), "stale token gone");
+        assert_eq!(out[4], "  # trailing note");
+    }
+
+    #[test]
+    fn errata_routes_to_last_loaded_file_and_respects_file_override() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        let a = dir.join("a.yaml");
+        let b = dir.join("b.yaml");
+        std::fs::write(&a, "app:\n  host: one\n").unwrap();
+        std::fs::write(&b, "app:\n  pool: 9\n").unwrap();
+        let external = vec![ext(&a), ext(&b)];
+
+        // Default: reverse load order — last-loaded (b) first, then .envrc*.
+        let cands = errata_candidates(&external, dir, None);
+        assert_eq!(cands, vec![b.clone(), a.clone()]);
+
+        // --file override pins the destination.
+        assert_eq!(errata_candidates(&external, dir, Some(&a)), vec![a.clone()]);
+
+        // The computed insert lands inside the pinned file, top-level body key.
+        let lines = read_lines(&a).unwrap();
+        let spans = locator::external_subject_spans(&lines);
+        let locs = locator::index_external_lines(&lines, &a);
+        let token = crate::crypto::encode_token("v", 0, &KEY).unwrap();
+        let (idx, line) =
+            external_errata_compute(&lines, &locs, &spans, "app", "api_key", 0, &token).unwrap();
+        assert_eq!(idx, 2, "after `host: one` (line 1)");
+        assert!(line.starts_with("  api_key: \"🔒 🔒:v1:"));
+    }
+
+    #[test]
+    fn external_errata_under_parent_and_for_empty_body() {
+        let src = lines("app:\n  db:\n    host: h\n  # note\nother:\n  x: 1\n");
+        let file = Path::new("/x/team.yaml");
+        let spans = locator::external_subject_spans(&src);
+        let locs = locator::index_external_lines(&src, file);
+        let token = crate::crypto::encode_token("v", 0, &KEY).unwrap();
+
+        // Parent path: inserted after db's subtree (comments skipped), indent parent+2.
+        let (idx, line) =
+            external_errata_compute(&src, &locs, &spans, "app", "db.port", 0, &token).unwrap();
+        assert_eq!(idx, 4, "after the trailing comment, before `other:`");
+        assert!(line.starts_with("    port: \"🔒 🔒:v1:"));
+
+        // Subject with an empty body: insert directly under the subject line.
+        let src2 = lines("app:\n  x: 1\nboot:\n");
+        let spans2 = locator::external_subject_spans(&src2);
+        let locs2 = locator::index_external_lines(&src2, file);
+        let (idx2, line2) =
+            external_errata_compute(&src2, &locs2, &spans2, "boot", "api_key", 0, &token).unwrap();
+        assert_eq!(idx2, 3, "after `boot:` (line 2, the last line)");
+        assert!(line2.starts_with("  api_key: \"🔒 🔒:v1:"));
     }
 }

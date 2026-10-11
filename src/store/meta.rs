@@ -98,7 +98,7 @@ pub fn update_configs_list(store: &Path) -> Result<()> {
 /// their position before the new batch.
 pub fn register_external_files(store: &Path, files: &[PathBuf]) -> Result<()> {
     let mut meta = read_meta(store)?;
-    meta.external.retain(|e| !files.iter().any(|f| e.path == *f));
+    meta.external.retain(|e| !files.contains(&e.path));
     for f in files {
         let (mtime, size) = match std::fs::metadata(f) {
             Ok(md) => (
@@ -186,7 +186,7 @@ mod tests {
         assert!(loaded.external[0].mtime > 0);
 
         // Re-loading only `a` moves it after `b` (this invocation's order wins).
-        register_external_files(tmp.path(), &[a.clone()]).unwrap();
+        register_external_files(tmp.path(), std::slice::from_ref(&a)).unwrap();
         let loaded = read_meta(tmp.path()).unwrap();
         assert_eq!(
             loaded.external.iter().map(|e| e.path.clone()).collect::<Vec<_>>(),
