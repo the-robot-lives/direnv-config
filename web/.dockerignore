@@ -1,0 +1,9 @@
+_build
+deps
+.elixir_ls
+cover
+test
+.git
+.claude
+*.ez
+priv/static/hologram/*.js.map

@@ -56,14 +56,15 @@ dc set / unset / bump     # mutate values / version counter
 dc list / status / env    # configs, merge state, resolved env
 dc gen / gen-secrets      # generate values
 dc encrypt / decrypt      # secret material
-dc secrets / secretsmap / secretcmp
+dc secrets                # list secret key names per config
 dc infisical <sub>        # infisical get|set|compare — sync dc secrets against Infisical
 dc compare <name> <path> --to <target>
+dc push <name> <path> --to <target>    # force-push local secret(s) to a remote (--dry-run, --yes)
 dc bat --all --flat --filter-key <regex>
-dc config / settings      # tool configuration
-                          # dc config get/set/setall now span .envrc* AND loaded files;
+dc config <sub>           # locate and edit values in source .envrc* and dc-loaded files
                           # --file <path> forces the destination (validated against known sources)
-dc audit / prune / purge  # hygiene
+dc keys <sub>             # manage the lockable encryption-key file (status|migrate|lock|unlock)
+dc prune / purge          # hygiene
 dc init                   # scaffold a store
 ```
 
@@ -80,4 +81,4 @@ In `.envrc`: `dc_yaml` (deep merge, preserves sibling keys — the workhorse), `
 
 ## Docs
 
-Extensive documentation in `docs/` and the Sphinx/ReadTheDocs setup; `demo/` has a runnable walkthrough.
+Extensive documentation in `docs/` — `PROJ-ARCH`, `PROJ-LAYOUT`, `PROJ-SCHEMA`, `PROJ-FAQ`, `PROJ-HOWTO`, `THREAT-MODEL`, `TEST-HEALTH` (each with a `.summary.md` digest), task howtos in `docs/howto/`, internals in `docs/arch/` (flatten rules, layer resolution, parent chain) and `docs/layout/`; `demo/` has a runnable walkthrough.
