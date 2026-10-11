@@ -136,13 +136,25 @@ pub fn scan_blocks(lines: &[String]) -> Vec<HeredocBlock> {
     blocks
 }
 
-/// Index every key within a block to its line location.
-// <REMOVED UUID HERE> index_block :: Index every key within a block to its line location.
-pub fn index_block(block: &HeredocBlock, lines: &[String], file: &Path) -> Vec<KeyLoc> {
-    let mut locs = Vec::new();
-    let mut stack: Vec<(usize, String)> = Vec::new();
-    let mut i = block.body.start;
-    while i < block.body.end {
+/// A scanned `key:` line within a YAML-ish region: indentation, block-scalar
+/// span, and line numbers — everything needed to build a [`KeyLoc`] later.
+#[derive(Debug, Clone)]
+struct ScannedKey {
+    indent: usize,
+    key: String,
+    key_line: usize,
+    value_start: usize,
+    value_end: usize,
+    is_block_scalar: bool,
+}
+
+/// Scan `lines[range]` for `key:` lines, skipping comments/blanks and jumping
+/// over block-scalar (`|`/`>`) continuation lines. This is the line-level
+/// grammar shared by heredoc blocks and external plain-YAML files.
+fn scan_keys(lines: &[String], range: Range<usize>) -> Vec<ScannedKey> {
+    let mut keys = Vec::new();
+    let mut i = range.start;
+    while i < range.end {
         let line = &lines[i];
         let trimmed = line.trim_start();
         if trimmed.is_empty() || trimmed.starts_with('#') {
@@ -155,27 +167,12 @@ pub fn index_block(block: &HeredocBlock, lines: &[String], file: &Path) -> Vec<K
             continue;
         };
 
-        // Pop deeper-or-equal entries off the stack.
-        while let Some((ind, _)) = stack.last() {
-            if *ind >= indent {
-                stack.pop();
-            } else {
-                break;
-            }
-        }
-        stack.push((indent, key.clone()));
-        let path = stack
-            .iter()
-            .map(|(_, k)| k.as_str())
-            .collect::<Vec<_>>()
-            .join(".");
-
         let rest_trim = rest.trim();
         if rest_trim.starts_with('|') || rest_trim.starts_with('>') {
             // Block scalar: value spans following more-indented lines.
             let mut j = i + 1;
             let mut last_nonblank = i;
-            while j < block.body.end {
+            while j < range.end {
                 let l = &lines[j];
                 let lt = l.trim_start();
                 if lt.is_empty() {
@@ -190,32 +187,60 @@ pub fn index_block(block: &HeredocBlock, lines: &[String], file: &Path) -> Vec<K
                     break;
                 }
             }
-            locs.push(KeyLoc {
-                subject: block.subject.clone(),
-                layer: block.layer.clone(),
-                path,
-                file: file.to_path_buf(),
+            keys.push(ScannedKey {
+                indent,
+                key,
                 key_line: i,
                 value_start: i + 1,
                 value_end: last_nonblank,
                 is_block_scalar: true,
-                indent,
             });
             i = j;
         } else {
-            locs.push(KeyLoc {
-                subject: block.subject.clone(),
-                layer: block.layer.clone(),
-                path,
-                file: file.to_path_buf(),
+            keys.push(ScannedKey {
+                indent,
+                key,
                 key_line: i,
                 value_start: i,
                 value_end: i,
                 is_block_scalar: false,
-                indent,
             });
             i += 1;
         }
+    }
+    keys
+}
+
+/// Index every key within a block to its line location.
+// <REMOVED UUID HERE> index_block :: Index every key within a block to its line location.
+pub fn index_block(block: &HeredocBlock, lines: &[String], file: &Path) -> Vec<KeyLoc> {
+    let mut locs = Vec::new();
+    let mut stack: Vec<(usize, String)> = Vec::new();
+    for k in scan_keys(lines, block.body.clone()) {
+        // Pop deeper-or-equal entries off the stack.
+        while let Some((ind, _)) = stack.last() {
+            if *ind >= k.indent {
+                stack.pop();
+            } else {
+                break;
+            }
+        }
+        stack.push((k.indent, k.key.clone()));
+        locs.push(KeyLoc {
+            subject: block.subject.clone(),
+            layer: block.layer.clone(),
+            path: stack
+                .iter()
+                .map(|(_, k)| k.as_str())
+                .collect::<Vec<_>>()
+                .join("."),
+            file: file.to_path_buf(),
+            key_line: k.key_line,
+            value_start: k.value_start,
+            value_end: k.value_end,
+            is_block_scalar: k.is_block_scalar,
+            indent: k.indent,
+        });
     }
     locs
 }
@@ -230,6 +255,140 @@ pub fn index_file(path: &Path) -> std::io::Result<Vec<KeyLoc>> {
         out.extend(index_block(&block, &lines, path));
     }
     Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// External plain-YAML files (dc load)
+// ---------------------------------------------------------------------------
+
+/// Reserved per-subject routing key stripped during ingest and not indexed.
+pub const LAYER_KEY: &str = "_dc_layer";
+
+/// One subject entry (top-level key, or key under a `subjects:` wrapper) in an
+/// external plain-YAML file, with its body's line span.
+#[derive(Debug, Clone)]
+pub struct SubjectSpan {
+    pub name: String,
+    /// 0-indexed line of the `subject:` key.
+    pub key_line: usize,
+    /// Indent of the subject key (wrapper files: one level deeper).
+    pub indent: usize,
+    /// Line span of the subject's body (after the key, up to the next subject).
+    pub body: Range<usize>,
+    /// Minimum indent of the body's keys (the subject-body indentation).
+    pub child_indent: Option<usize>,
+}
+
+/// Split scanned keys into `(subject key, child-index range)` pairs.
+///
+/// Handles the optional `subjects:` wrapper: when the file's single root key is
+/// `subjects`, subject names live one indent level deeper.
+fn split_subjects(keys: &[ScannedKey]) -> Vec<(&ScannedKey, Range<usize>)> {
+    if keys.is_empty() {
+        return Vec::new();
+    }
+    let root_indent = keys.iter().map(|k| k.indent).min().unwrap();
+    let root_count = keys.iter().filter(|k| k.indent == root_indent).count();
+    let (subject_indent, first_subject_idx) = if root_count == 1
+        && keys[0].indent == root_indent
+        && keys[0].key == "subjects"
+    {
+        // Wrapper form: subjects sit at the next indent level.
+        match keys.iter().position(|k| k.indent > root_indent) {
+            Some(p) => (keys[p].indent, p),
+            None => return Vec::new(),
+        }
+    } else {
+        (root_indent, 0)
+    };
+
+    let mut out = Vec::new();
+    let mut current: Option<(&ScannedKey, usize)> = None;
+    for (idx, k) in keys.iter().enumerate() {
+        if k.indent == subject_indent && idx >= first_subject_idx {
+            if let Some((subject, start)) = current.take() {
+                out.push((subject, start..idx));
+            }
+            current = Some((k, idx + 1));
+        }
+    }
+    if let Some((subject, start)) = current {
+        out.push((subject, start..keys.len()));
+    }
+    out
+}
+
+/// Index every key of every subject in an external plain-YAML file's lines,
+/// producing the same [`KeyLoc`] shape as [`index_block`] — paths relative to
+/// the subject body, indents/lines absolute within the file, so splices stay
+/// comment-preserving. The reserved `_dc_layer` routing key is not indexed.
+pub fn index_external_lines(lines: &[String], file: &Path) -> Vec<KeyLoc> {
+    let keys = scan_keys(lines, 0..lines.len());
+    let mut locs = Vec::new();
+    for (subject, children) in split_subjects(&keys) {
+        let mut stack: Vec<(usize, String)> = Vec::new();
+        for k in &keys[children] {
+            while let Some((ind, _)) = stack.last() {
+                if *ind >= k.indent {
+                    stack.pop();
+                } else {
+                    break;
+                }
+            }
+            stack.push((k.indent, k.key.clone()));
+            // `_dc_layer` at the top of a subject body is routing metadata.
+            if stack.len() == 1 && k.key == LAYER_KEY {
+                continue;
+            }
+            locs.push(KeyLoc {
+                subject: subject.key.clone(),
+                layer: None,
+                path: stack
+                    .iter()
+                    .map(|(_, k)| k.as_str())
+                    .collect::<Vec<_>>()
+                    .join("."),
+                file: file.to_path_buf(),
+                key_line: k.key_line,
+                value_start: k.value_start,
+                value_end: k.value_end,
+                is_block_scalar: k.is_block_scalar,
+                indent: k.indent,
+            });
+        }
+    }
+    locs
+}
+
+/// Subject spans of an external plain-YAML file (including subjects whose
+/// bodies hold no keys), used for errata inserts and subject discovery.
+pub fn external_subject_spans(lines: &[String]) -> Vec<SubjectSpan> {
+    let keys = scan_keys(lines, 0..lines.len());
+    let pairs = split_subjects(&keys);
+    let mut spans = Vec::new();
+    for (i, (subject, children)) in pairs.iter().enumerate() {
+        let body_end = pairs
+            .get(i + 1)
+            .map(|(next, _)| next.key_line)
+            .unwrap_or(lines.len());
+        spans.push(SubjectSpan {
+            name: subject.key.clone(),
+            key_line: subject.key_line,
+            indent: subject.indent,
+            body: (subject.key_line + 1)..body_end,
+            child_indent: keys
+                .get(children.clone())
+                .and_then(|ks| ks.iter().map(|k| k.indent).min()),
+        });
+    }
+    spans
+}
+
+/// Read an external plain-YAML file and return all located keys.
+pub fn index_external(path: &Path) -> std::io::Result<Vec<KeyLoc>> {
+    let content = std::fs::read_to_string(path)?;
+    let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+    Ok(index_external_lines(&lines, path))
 }
 
 /// Discover `.envrc*` files in `dir` (non-recursive).
@@ -335,5 +494,78 @@ mod tests {
         let locs = index_block(&blocks[0], &src, Path::new("/x/.envrc"));
         assert_eq!(locs.len(), 2);
         assert_eq!(locs.iter().find(|l| l.path == "zone").unwrap().key_line, 5);
+    }
+
+    // --- external plain-YAML files ---
+
+    #[test]
+    fn indexes_external_subjects_and_nested_keys() {
+        let src = lines(
+            "# header comment\ncluster:\n  name: noizu\n  access:\n    client_id: pub\ninfra:\n  region: us-east-1\n",
+        );
+        let locs = index_external_lines(&src, Path::new("/x/config/dc.yaml"));
+        let by = |s: &str, p: &str| locs.iter().find(|l| l.subject == s && l.path == p).unwrap();
+        assert_eq!(by("cluster", "name").key_line, 2);
+        assert_eq!(by("cluster", "name").indent, 2);
+        assert_eq!(by("cluster", "access.client_id").key_line, 4);
+        assert_eq!(by("cluster", "access.client_id").indent, 4);
+        assert_eq!(by("infra", "region").key_line, 6);
+        // paths are relative to the subject body, never include the subject
+        let infra_paths: Vec<&str> =
+            locs.iter().filter(|l| l.subject == "infra").map(|l| l.path.as_str()).collect();
+        assert_eq!(infra_paths, vec!["region"]);
+    }
+
+    #[test]
+    fn indexes_external_subjects_wrapper() {
+        let src = lines(
+            "subjects:\n  cluster:\n    name: noizu\n  infra:\n    region: us-east-1\n",
+        );
+        let locs = index_external_lines(&src, Path::new("/x/config/dc.yaml"));
+        assert_eq!(
+            locs.iter()
+                .find(|l| l.subject == "cluster" && l.path == "name")
+                .unwrap()
+                .key_line,
+            2
+        );
+        assert_eq!(locs.len(), 2);
+    }
+
+    #[test]
+    fn external_index_handles_block_scalars() {
+        let src = lines(
+            "cluster:\n  token: |\n    🔒 line-one\n    line-two\n  name: noizu\n",
+        );
+        let locs = index_external_lines(&src, Path::new("/x/config/dc.yaml"));
+        let tok = locs.iter().find(|l| l.path == "token").unwrap();
+        assert!(tok.is_block_scalar);
+        assert_eq!(tok.value_start, 2);
+        assert_eq!(tok.value_end, 3);
+        // the sibling after the block is indexed at the right line
+        assert_eq!(locs.iter().find(|l| l.path == "name").unwrap().key_line, 4);
+    }
+
+    #[test]
+    fn external_index_skips_dc_layer() {
+        let src = lines("cluster:\n  _dc_layer: local\n  name: noizu\n");
+        let locs = index_external_lines(&src, Path::new("/x/config/dc.yaml"));
+        assert!(locs.iter().all(|l| l.path != "_dc_layer"));
+        // nested keys that merely start with the prefix are still indexed
+        let src = lines("cluster:\n  dc_layerish: v\n");
+        let locs = index_external_lines(&src, Path::new("/x/config/dc.yaml"));
+        assert!(locs.iter().any(|l| l.path == "dc_layerish"));
+    }
+
+    #[test]
+    fn external_spans_cover_empty_bodied_subjects() {
+        let src = lines("cluster: {}\ninfra:\n  region: us-east-1\n");
+        let spans = external_subject_spans(&src);
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[0].name, "cluster");
+        assert_eq!(spans[0].child_indent, None);
+        assert_eq!(spans[1].name, "infra");
+        assert_eq!(spans[1].child_indent, Some(2));
+        assert_eq!(spans[1].body, 2..3);
     }
 }
