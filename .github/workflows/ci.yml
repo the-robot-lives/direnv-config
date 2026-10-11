@@ -1,5 +1,10 @@
 name: CI
 
+# CLI/SDK suites run on every push/PR. The landing image (context: web/ —
+# server-rendered Phoenix/Hologram on Bandit) is smoke-built on every run;
+# on main ONLY it is pushed to ops.noizu.com as sha-* and the helm values
+# are bumped [skip ci]. ArgoCD auto-syncs helm/dirconfig-site @ main.
+
 on:
   push:
     branches: [main, develop, stage]
@@ -12,6 +17,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  REGISTRY: ops.noizu.com
+  IMAGE: ops.noizu.com/dirconfig.therobotlives.com/web
 
 jobs:
   rust-cli:
@@ -161,10 +168,151 @@ jobs:
           php-version: "8.2"
       - run: composer install
       - run: vendor/bin/phpunit
+
+  web-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    env:
+      MIX_ENV: test
+      # Hologram routes 404 in :test unless this is set.
+      HOLOGRAM_START: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          version-file: web/.tool-versions
+          version-type: strict
+      - uses: actions/cache@v4
+        with:
+          path: |
+            web/deps
+            web/_build
+          key: ${{ runner.os }}-mix-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('web/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-
+      - run: mix deps.get
+      - run: mix compile
+      - run: mix test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-web
+          path: web/cover
+          if-no-files-found: ignore
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # PRs restore the gha cache only; develop/main pushes export it
+      # (stops PR cache churn).
+      - name: Build landing image
+        uses: docker/build-push-action@v6
+        with:
+          context: web
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: dirconfig-landing:ci
+          cache-from: type=gha,scope=web
+          cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,scope=web,mode=max' || '' }}
+      - name: Probe /healthz and hero content
+        run: |
+          docker run -d --name dc-landing -p 8160:8160 dirconfig-landing:ci
+          trap 'docker rm -f dc-landing >/dev/null 2>&1 || true' EXIT
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:8160/healthz | grep -q ok; then
+              PAGE=$(curl -fsS http://127.0.0.1:8160/)
+              # A bare failing grep exits silently under bash -e and leaves
+              # nothing to diagnose — report which probe string missed.
+              check() {
+                echo "$PAGE" | grep -q "$1" || {
+                  echo "::error::hero copy probe failed: \"$1\" not found in /"
+                  exit 1
+                }
+              }
+              check "YAML in. Env vars out."
+              check "How it works"
+              check "23 subcommands, one small binary"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "landing smoke failed"
+          docker logs dc-landing || true
+          exit 1
+
+  build-push:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [rust-cli, rust-cli-clippy, rust-sdk, typescript-sdk, python-sdk, elixir-sdk, php-sdk, web-test, smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require registry secrets
+        env:
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          if [ -z "$REGISTRY_USER" ] || [ -z "$REGISTRY_PASSWORD" ]; then
+            echo "::error::REGISTRY_USER / REGISTRY_PASSWORD missing on this repo"
+            exit 1
+          fi
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - name: Short SHA
+        id: sha
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - name: Build & push landing
+        uses: docker/build-push-action@v6
+        with:
+          context: web
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE }}:sha-${{ steps.sha.outputs.short }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+
+  bump-chart:
+    needs: build-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bump image tag
+        run: |
+          SHORT=${GITHUB_SHA::7}
+          sed -i -E "s|(image: ops\.noizu\.com/dirconfig\.therobotlives\.com/web:).*|\1sha-${SHORT}|" helm/dirconfig-site/values.yaml
+          # If the sed ever stops matching values.yaml, the diff-quiet guard
+          # below exits 0 and ArgoCD silently keeps serving the old image.
+          # Fail loudly when the expected tag is not in the file exactly once.
+          hits=$(grep -c "ops\.noizu\.com/dirconfig\.therobotlives\.com/web:sha-${SHORT}" helm/dirconfig-site/values.yaml || true)
+          if [ "${hits:-0}" -ne 1 ]; then
+            echo "::error::bump-chart: expected exactly 1 image tag sha-${SHORT} in helm/dirconfig-site/values.yaml, found ${hits:-0} — sed pattern no longer matches?"
+            exit 1
+          fi
+      - name: Commit & push
+        run: |
+          git config user.name "dirconfig-site-ci"
+          git config user.email "ci@noizu.com"
+          git add helm/dirconfig-site/values.yaml
+          git diff --cached --quiet && exit 0
+          git commit -m "ci: deploy sha-${GITHUB_SHA::7} [skip ci]"
+          git push
+
   ci-timing:
     # PR-run timing tracker (fleet standard). Warn-only: never blocks.
     # Thresholds are repo/org Variables PR_STEP_MAX_MINUTES / PR_RUN_MAX_MINUTES, defaults 4/7.
-    needs: [rust-cli, rust-sdk, typescript-sdk, python-sdk, elixir-sdk, php-sdk]
+    needs: [rust-cli, rust-cli-clippy, rust-sdk, typescript-sdk, python-sdk, elixir-sdk, php-sdk, web-test, smoke]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
@@ -210,7 +358,7 @@ jobs:
               echo "| \`$job\` | \`$step\` | $((dur / 60))m$((dur % 60))s | ok |" >> "$SUMMARY"
             fi
           done < <(echo "$jobs_json" | jq -r '
-            .jobs[] | select(.name | test("^(rust-cli|rust-sdk|typescript-sdk|python-sdk|elixir-sdk|php-sdk)$")) | .name as $job |
+            .jobs[] | select(.name | test("^(rust-cli|rust-cli-clippy|rust-sdk|typescript-sdk|python-sdk|elixir-sdk|php-sdk|web-test|smoke)$")) | .name as $job |
             .steps[] | select(.status == "completed" and .conclusion != "skipped" and .conclusion != null) |
             [$job, .name, .started_at, .completed_at] | @tsv')
           start=$(date -d "$RUN_STARTED_AT" +%s); now=$(date +%s)

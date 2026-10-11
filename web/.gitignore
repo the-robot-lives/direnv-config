@@ -1,0 +1,10 @@
+/_build/
+/deps/
+.elixir_ls/
+*.ez
+/cover/
+
+# Hologram bundles carry source maps with absolute build-machine paths in
+# sourcesContent (Hologram emits absolute import paths in page entry modules).
+# They are build artifacts — never commit or ship them.
+/priv/static/hologram/*.js.map
