@@ -21,7 +21,7 @@ _dc() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     COMPREPLY=()
 
-    local commands="yaml get gen encrypt decrypt set unset prune env bump init status list purge secrets bat config compare push gen-secrets infisical"
+    local commands="yaml load get gen encrypt decrypt set unset prune env bump init status list purge secrets bat config compare push gen-secrets infisical"
     local global_flags="-h --help -V --version"
 
     # Flags whose value is the next word.
@@ -73,6 +73,12 @@ _dc() {
             opts="--layer --replace --replace-key --if-missing --no-bump"
             if [[ "$cur" != -* ]]; then
                 ((pos == 0)) && COMPREPLY=($(compgen -W "$(__dc_configs)" -- "$cur"))
+                return
+            fi ;;
+        load)
+            opts="--layer --replace --replace-key --if-missing --no-bump"
+            if [[ "$cur" != -* ]]; then
+                COMPREPLY=($(compgen -f -- "$cur"))  # YAML file(s)
                 return
             fi ;;
         get)
@@ -152,8 +158,8 @@ _dc() {
                     esac
                     # Fall through to flag completion for known subcommands.
                     case "$sub" in
-                        set)    opts="--value --from --stdin --encrypted --yes" ;;
-                        setall) opts="--above --below --yes" ;;
+                        set)    opts="--value --from --stdin --encrypted --yes --file" ;;
+                        setall) opts="--above --below --yes --file" ;;
                         secure) opts="--note" ;;
                     esac
                 fi
