@@ -11,15 +11,20 @@ secret_key_base =
 
 # Plug options are evaluated at compile time, so the session salt is read at
 # runtime by DirenvConfigWeb.Plugs.Session.init/1 from app env (see
-# config.exs: :plug_init_mode, :runtime).
+# config.exs: :plug_init_mode, :runtime). LiveView gets an independent salt
+# so one signing context can never inform the other if LV routes are added.
 session_signing_salt =
   System.get_env("SESSION_SIGNING_SALT") ||
+    (:crypto.strong_rand_bytes(24) |> Base.encode16(case: :lower) |> binary_part(0, 48))
+
+live_view_signing_salt =
+  System.get_env("LIVE_VIEW_SIGNING_SALT") ||
     (:crypto.strong_rand_bytes(24) |> Base.encode16(case: :lower) |> binary_part(0, 48))
 
 config :direnv_config_web, DirenvConfigWeb.Endpoint,
   secret_key_base: secret_key_base,
   session_signing_salt: session_signing_salt,
-  live_view: [signing_salt: session_signing_salt]
+  live_view: [signing_salt: live_view_signing_salt]
 
 # Prod-only overrides for `mix release` containers. Only evaluated by the
 # release's config provider — dev/test keep the settings in config.exs.
