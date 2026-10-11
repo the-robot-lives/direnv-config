@@ -9,7 +9,7 @@
 | Artifact | Location | Role |
 |----------|----------|------|
 | `.envrc` | each project dir | Source of truth; `dc_yaml <name> <<'YAML'` heredoc per named config |
-| External YAML files | anywhere; registered in store `.meta` `external:` (path+mtime+size, load order) | `dc load`/`dc_load` ingest: root mapping subject→body or `subjects:` wrapper; `_dc_layer:` routes per subject; same 🔒 encryption; later files win |
+| External YAML files | anywhere; registered in store `.meta` `external:` (path+mtime+size+load options, load order) | `dc load`/`dc_load` ingest: root mapping subject→body or `subjects:` wrapper; `_dc_layer:` routes per subject; same 🔒 encryption; later files win; `--if-missing` files seed once and are never re-ingested by a refresh; `--replace` never replayed |
 | State store | `$XDG_STATE_HOME/direnv-config/<path-hash>/` | Per-directory resolved config; `.version`, `.meta`, `<config>/{base,{DC_ENV},local,secrets}.yaml`, `.active`, `history/` |
 | Secret token | `secrets.yaml` layer | `🔒:v1:<ciphertext>` — XChaCha20-Poly1305; `❗`×0–3 tiers |
 | Key file | `~/.config/direnv-config/keys` (0600) | `{version: 1, key: base64-32}`; wins exclusively when present; `dc keys` status/migrate/lock/unlock |

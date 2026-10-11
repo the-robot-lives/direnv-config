@@ -117,8 +117,15 @@ files win** on key conflicts (deep merge per ingest step).
 ### Provenance registry (store `.meta`)
 
 Loaded files are registered in the store's `.meta` under `external:`, in load
-order (last entry = last loaded), each `{path (absolute), mtime, size}`. The
-registry drives lookup and write routing:
+order (last entry = last loaded), each
+`{path (absolute), mtime, size, layer, if_missing}` — the latter two record the
+invocation's load options (the `--layer` default; whether `--if-missing` was
+set). Registry entries written before the load-options fields existed
+deserialize with `layer: base` / `if_missing: false`; no released version ever
+wrote such entries, so there is no migration path to maintain. `--replace` /
+`--replace-key` are deliberately **not** recorded or replayed — a destructive
+replace belongs to the explicit `dc load` invocation only. The registry drives
+lookup and write routing:
 
 - `dc config get <subject> <path>` searches `.envrc*` **and** every registered
   external file, reporting `file:line`.
@@ -131,6 +138,13 @@ registry drives lookup and write routing:
   `.envrc*` heredocs when the subject is absent from the last-loaded one.
 - A registered file that has vanished produces a **warning**, not a failure
   (re-run `dc load` or edit the registry to refresh it).
+
+**Refresh guarantee:** when `dc config set`/`setall` re-ingests a subject, a
+file loaded with `--if-missing` is **never** re-ingested — it seeds the store
+once and its values are store-owned afterwards (mirroring `--if-missing`
+heredoc blocks), so a refresh can never revert them to the stale seed. Other
+files re-ingest into the layer recorded at load time (their `_dc_layer`
+per-subject routing still applies within the file).
 
 ### Ingest precedence
 

@@ -377,40 +377,92 @@ pub(crate) fn write_sentinel(subject: &str, path: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// Re-ingest every source for a subject into the store — `dc_yaml … <subject>`
-/// heredocs across `.envrc*` files (same order as `envrc_files`) and the
-/// subject's bodies from registered external files (registry order = load
-/// order) — the way direnv re-sourcing the `.envrc` would. The file just
-/// edited (`edited`) is ingested last so its keys win over stale duplicates
-/// in other sources. Without this, `dc get` and `infisical-populate-secrets`
-/// keep serving the pre-edit value until the shell re-sources the files.
-fn refresh_store(subject: &str, edited: Option<&Path>) -> Result<()> {
-    let store = crate::store::find_current_store()?;
-    let _lock = crate::store::lock_store(&store)?;
-    let meta = crate::store::meta::read_meta(&store)?;
-    let dir = meta.source.clone();
+/// One refresh ingest unit: the source file (for edited-last ordering), the
+/// parsed subject body, and the layer the source declared.
+struct RefreshJob {
+    file: PathBuf,
+    body: serde_yaml::Value,
+    layer: String,
+}
 
-    // Gather (source file, body, default layer) jobs for this subject.
-    // `--if-missing` heredoc blocks seed the store once and are store-owned
-    // afterwards (e.g. generated `auto` values); re-ingesting would clobber them.
-    let mut jobs: Vec<(PathBuf, serde_yaml::Value, String)> = Vec::new();
-    for file in locator::envrc_files(&dir) {
-        let lines = read_lines(&file)?;
-        let blocks = locator::scan_blocks(&lines);
+/// Build the refresh job list for a subject from `.envrc*` heredoc sources
+/// and registered external files (registry order = load order). Pure: all
+/// file IO is done by the caller ([`refresh_store`]); here `envrc_sources`
+/// are already-read `.envrc*` line arrays and `external_docs` the parsed
+/// subjects per registered external file.
+///
+/// `--if-missing` sources are skipped on both sides — they seed the store
+/// once and are store-owned afterwards (e.g. generated `auto` values);
+/// re-ingesting would clobber the current value with the stale seed. Layer
+/// comes from the source: the heredoc's `--layer` flag, or the layer
+/// recorded for the external file at `dc load` time.
+fn refresh_jobs(
+    subject: &str,
+    envrc_sources: &[(PathBuf, Vec<String>)],
+    external: &[crate::store::meta::ExternalFile],
+    external_docs: &[(PathBuf, Vec<(String, serde_yaml::Value)>)],
+) -> Result<Vec<RefreshJob>> {
+    let mut jobs: Vec<RefreshJob> = Vec::new();
+    for (file, lines) in envrc_sources {
+        let blocks = locator::scan_blocks(lines);
         for block in blocks
             .iter()
             .filter(|b| b.subject == subject && !lines[b.start_line].contains("--if-missing"))
         {
             let body = lines[block.body.clone()].join("\n");
             let input: serde_yaml::Value = serde_yaml::from_str(&body)?;
-            jobs.push((
-                file.clone(),
-                input,
-                block.layer.clone().unwrap_or_else(|| "base".to_string()),
-            ));
+            jobs.push(RefreshJob {
+                file: file.clone(),
+                body: input,
+                layer: block.layer.clone().unwrap_or_else(|| "base".to_string()),
+            });
         }
     }
+    for ef in external {
+        if ef.if_missing {
+            continue; // seed-once: store-owned after the first ingest
+        }
+        let Some((_, subjects)) = external_docs.iter().find(|(p, _)| p == &ef.path) else {
+            continue;
+        };
+        for (subj, body) in subjects {
+            if subj == subject {
+                jobs.push(RefreshJob {
+                    file: ef.path.clone(),
+                    body: body.clone(),
+                    layer: ef.layer.clone().unwrap_or_else(|| "base".to_string()),
+                });
+            }
+        }
+    }
+    Ok(jobs)
+}
+
+/// Re-ingest every source for a subject into the store — `dc_yaml … <subject>`
+/// heredocs across `.envrc*` files (same order as `envrc_files`) and the
+/// subject's bodies from registered external files (registry order = load
+/// order, honoring the layer/if-missing options recorded at load time) — the
+/// way direnv re-sourcing the `.envrc` would. The file just edited (`edited`)
+/// is ingested last so its keys win over stale duplicates in other sources.
+/// `--replace`/`--replace-key` are never replayed here: a destructive
+/// replace belongs to the explicit `dc load` invocation only. Without this,
+/// `dc get` and `infisical-populate-secrets` keep serving the pre-edit value
+/// until the shell re-sources the files.
+fn refresh_store(subject: &str, edited: Option<&Path>) -> Result<()> {
+    let store = crate::store::find_current_store()?;
+    let _lock = crate::store::lock_store(&store)?;
+    let meta = crate::store::meta::read_meta(&store)?;
+    let dir = meta.source.clone();
+
+    let mut envrc_sources: Vec<(PathBuf, Vec<String>)> = Vec::new();
+    for file in locator::envrc_files(&dir) {
+        envrc_sources.push((file.clone(), read_lines(&file)?));
+    }
+    let mut external_docs: Vec<(PathBuf, Vec<(String, serde_yaml::Value)>)> = Vec::new();
     for ef in &meta.external {
+        if ef.if_missing {
+            continue; // seed-once: never re-read, never re-ingested
+        }
         if !ef.path.exists() {
             eprintln!(
                 "warning: registered external file {} has vanished — skipping (re-run `dc load` or edit the registry)",
@@ -420,18 +472,17 @@ fn refresh_store(subject: &str, edited: Option<&Path>) -> Result<()> {
         }
         let content = std::fs::read_to_string(&ef.path)?;
         let doc: serde_yaml::Value = serde_yaml::from_str(&content)?;
-        for (subj, body) in crate::cmd::load::parse_subjects(&ef.path, &doc)? {
-            if subj == subject {
-                jobs.push((ef.path.clone(), body, "base".to_string()));
-            }
-        }
+        external_docs.push((ef.path.clone(), crate::cmd::load::parse_subjects(&ef.path, &doc)?));
     }
-    // The edited source ingests last (stable sort keeps the rest in order).
-    jobs.sort_by_key(|(f, _, _)| edited.is_some_and(|e| same_path(f, e)));
 
-    for (_, body, layer) in &jobs {
-        let opts = crate::cmd::load::IngestOpts { layer: Some(layer), ..Default::default() };
-        crate::cmd::load::ingest_subject(&store, subject, body, &opts, &crate::settings::key)?;
+    let mut jobs = refresh_jobs(subject, &envrc_sources, &meta.external, &external_docs)?;
+    // The edited source ingests last (stable sort keeps the rest in order).
+    jobs.sort_by_key(|j| edited.is_some_and(|e| same_path(&j.file, e)));
+
+    for job in &jobs {
+        let opts =
+            crate::cmd::load::IngestOpts { layer: Some(job.layer.as_str()), ..Default::default() };
+        crate::cmd::load::ingest_subject(&store, subject, &job.body, &opts, &crate::settings::key)?;
     }
 
     crate::store::resolve::resolve_active(&store, subject)?;
@@ -806,7 +857,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn ext(p: &std::path::Path) -> ExternalFile {
-        ExternalFile { path: p.to_path_buf(), mtime: 0, size: 0 }
+        ExternalFile { path: p.to_path_buf(), mtime: 0, size: 0, layer: None, if_missing: false }
     }
 
     #[test]
@@ -928,5 +979,161 @@ mod tests {
             external_errata_compute(&src2, &locs2, &spans2, "boot", "api_key", 0, &token).unwrap();
         assert_eq!(idx2, 3, "after `boot:` (line 2, the last line)");
         assert!(line2.starts_with("  api_key: \"🔒 🔒:v1:"));
+    }
+
+    // ---- refresh: load options recorded in the registry are honored ----
+
+    #[test]
+    fn refresh_jobs_skips_if_missing_sources_on_both_sides() {
+        let envrc = vec![(
+            PathBuf::from("/x/.envrc"),
+            lines(
+                "dc_yaml --no-bump app <<'YAML'\nplain: 1\nYAML\n\
+                 dc_yaml --if-missing app <<'YAML'\nseeded: s\nYAML\n",
+            ),
+        )];
+        let seed = PathBuf::from("/x/seed.yaml");
+        let external = vec![ExternalFile {
+            path: seed.clone(),
+            mtime: 0,
+            size: 0,
+            layer: None,
+            if_missing: true,
+        }];
+        let docs = vec![(
+            seed,
+            vec![(
+                "app".to_string(),
+                serde_yaml::from_str::<serde_yaml::Value>("seeded: s\n").unwrap(),
+            )],
+        )];
+
+        let jobs = refresh_jobs("app", &envrc, &external, &docs).unwrap();
+        assert_eq!(jobs.len(), 1, "only the plain (non-if-missing) heredoc survives");
+        assert_eq!(jobs[0].file, PathBuf::from("/x/.envrc"));
+        for j in &jobs {
+            assert!(
+                j.body.get("seeded").is_none(),
+                "seed-once values must not be re-ingested (got body {:?})",
+                j.body
+            );
+        }
+    }
+
+    #[test]
+    fn refresh_jobs_uses_recorded_layer_not_base() {
+        let f = PathBuf::from("/x/stg.yaml");
+        let body = serde_yaml::from_str::<serde_yaml::Value>("region: eu\n").unwrap();
+        let docs = vec![(f.clone(), vec![("app".to_string(), body)])];
+
+        let external = vec![ExternalFile {
+            path: f.clone(),
+            mtime: 0,
+            size: 0,
+            layer: Some("staging".to_string()),
+            if_missing: false,
+        }];
+        let jobs = refresh_jobs("app", &[], &external, &docs).unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].layer, "staging", "recorded load layer must be replayed");
+
+        // No layer recorded (incl. pre-options registry entries) -> base.
+        let external2 = vec![ExternalFile { layer: None, if_missing: false, ..external[0].clone() }];
+        let jobs2 = refresh_jobs("app", &[], &external2, &docs).unwrap();
+        assert_eq!(jobs2[0].layer, "base");
+    }
+
+    /// Restore process-global state (CWD + XDG_STATE_HOME) when dropped, so a
+    /// panicking test does not poison the rest of the suite.
+    struct EnvGuard {
+        cwd: PathBuf,
+        xdg: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn capture() -> Self {
+            EnvGuard {
+                cwd: std::env::current_dir().unwrap(),
+                xdg: std::env::var("XDG_STATE_HOME").ok(),
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.cwd);
+            match &self.xdg {
+                Some(v) => std::env::set_var("XDG_STATE_HOME", v),
+                None => std::env::remove_var("XDG_STATE_HOME"),
+            }
+        }
+    }
+
+    #[test]
+    fn refresh_store_does_not_revert_store_owned_values_after_if_missing_load() {
+        let tmp = TempDir::new().unwrap();
+        let proj = std::fs::canonicalize({
+            std::fs::create_dir_all(tmp.path().join("proj")).unwrap();
+            tmp.path().join("proj")
+        })
+        .unwrap();
+        // canonicalize so the store hash from `ensure_store(&proj)` matches
+        // the one `find_current_store` computes from the OS-resolved CWD
+        // (macOS $TMPDIR is a /var -> /private/var symlink).
+        // A refreshable heredoc for the same subject (a different key).
+        std::fs::write(
+            proj.join(".envrc"),
+            "dc_yaml --no-bump app <<'YAML'\nother: heredoc\nYAML\n",
+        )
+        .unwrap();
+        // The seed file: loaded with --if-missing, so its values become
+        // store-owned after the first ingest. Plain values only — no 🔒, so
+        // the (real-machine) encryption key is never needed.
+        let seed = tmp.path().join("seed.yaml");
+        std::fs::write(&seed, "app:\n  token: seed-value\n").unwrap();
+
+        let _guard = EnvGuard::capture();
+        std::env::set_var("XDG_STATE_HOME", tmp.path().join("state"));
+        std::env::set_current_dir(&proj).unwrap();
+
+        let store = crate::store::layout::ensure_store(&proj).unwrap();
+        let opts = crate::cmd::load::IngestOpts { if_missing: true, ..Default::default() };
+        crate::cmd::load::load_files(
+            &store,
+            std::slice::from_ref(&seed),
+            &opts,
+            &|| anyhow::bail!("no key needed for plain bodies"),
+        )
+        .unwrap();
+
+        // Store-side mutation of the seeded key (what --if-missing ownership means).
+        let mutated: serde_yaml::Value = serde_yaml::from_str("token: rotated-by-store\n").unwrap();
+        crate::cmd::yaml::apply(
+            &store,
+            "app",
+            "base",
+            &mutated,
+            &[],
+            None,
+            false,
+            None,
+        )
+        .unwrap();
+
+        // A refresh triggered by editing any key of the subject must not revert it.
+        refresh_store("app", None).unwrap();
+
+        let base = crate::store::load_layer(&crate::store::layout::layer_path(&store, "app", "base"))
+            .unwrap();
+        assert_eq!(
+            crate::yaml::path::get_path(&base, "token"),
+            Some(serde_yaml::Value::String("rotated-by-store".into())),
+            "--if-missing seed must not clobber the store-owned value on refresh"
+        );
+        assert_eq!(
+            crate::yaml::path::get_path(&base, "other"),
+            Some(serde_yaml::Value::String("heredoc".into())),
+            "the refreshable heredoc key is still ingested"
+        );
     }
 }

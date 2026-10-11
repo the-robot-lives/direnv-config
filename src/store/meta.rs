@@ -16,6 +16,19 @@ pub struct ExternalFile {
     /// File size in bytes at registration (staleness hint).
     #[serde(default)]
     pub size: u64,
+    /// Default layer for subjects without `_dc_layer` at load time (the
+    /// `dc load --layer` flag). `None` means `base`.
+    ///
+    /// Persisted so `dc config` refreshes re-ingest into the layer the file
+    /// was actually loaded with. (Registry entries written before this field
+    /// existed deserialize with `None` — no migration needed.)
+    #[serde(default)]
+    pub layer: Option<String>,
+    /// The file was loaded with `--if-missing`: it seeds the store once and
+    /// is never re-ingested by a refresh — afterwards the values are
+    /// store-owned (mirrors the `--if-missing` heredoc filter).
+    #[serde(default)]
+    pub if_missing: bool,
 }
 
 /// Store metadata persisted as `.meta` YAML inside each store directory.
@@ -96,7 +109,17 @@ pub fn update_configs_list(store: &Path) -> Result<()> {
 /// order (so the list always ends with the most recently loaded batch, last
 /// entry = last loaded). Files registered earlier and not re-loaded keep
 /// their position before the new batch.
-pub fn register_external_files(store: &Path, files: &[PathBuf]) -> Result<()> {
+///
+/// `layer`/`if_missing` record the invocation's load options so refreshes can
+/// replay them (default layer, seed-once). `--replace`/`--replace-key` are
+/// deliberately NOT persisted: a destructive replace belongs to the explicit
+/// `dc load` invocation only and must never fire from a routine refresh.
+pub fn register_external_files(
+    store: &Path,
+    files: &[PathBuf],
+    layer: Option<&str>,
+    if_missing: bool,
+) -> Result<()> {
     let mut meta = read_meta(store)?;
     meta.external.retain(|e| !files.contains(&e.path));
     for f in files {
@@ -111,7 +134,13 @@ pub fn register_external_files(store: &Path, files: &[PathBuf]) -> Result<()> {
             ),
             Err(_) => (0, 0),
         };
-        meta.external.push(ExternalFile { path: f.clone(), mtime, size });
+        meta.external.push(ExternalFile {
+            path: f.clone(),
+            mtime,
+            size,
+            layer: layer.map(|l| l.to_string()),
+            if_missing,
+        });
     }
     write_meta(store, &meta)
 }
@@ -176,7 +205,7 @@ mod tests {
         std::fs::write(&a, "x: 1\n").unwrap();
         std::fs::write(&b, "y: 2\n").unwrap();
 
-        register_external_files(tmp.path(), &[a.clone(), b.clone()]).unwrap();
+        register_external_files(tmp.path(), &[a.clone(), b.clone()], None, false).unwrap();
         let loaded = read_meta(tmp.path()).unwrap();
         assert_eq!(
             loaded.external.iter().map(|e| e.path.clone()).collect::<Vec<_>>(),
@@ -184,14 +213,51 @@ mod tests {
         );
         assert!(loaded.external[0].size > 0);
         assert!(loaded.external[0].mtime > 0);
+        assert_eq!(loaded.external[0].layer, None);
+        assert!(!loaded.external[0].if_missing);
 
         // Re-loading only `a` moves it after `b` (this invocation's order wins).
-        register_external_files(tmp.path(), std::slice::from_ref(&a)).unwrap();
+        register_external_files(tmp.path(), std::slice::from_ref(&a), None, false).unwrap();
         let loaded = read_meta(tmp.path()).unwrap();
         assert_eq!(
             loaded.external.iter().map(|e| e.path.clone()).collect::<Vec<_>>(),
             vec![b.clone(), a.clone()]
         );
+    }
+
+    #[test]
+    fn register_external_files_persists_load_options() {
+        let (tmp, meta) = make_store();
+        write_meta(tmp.path(), &meta).unwrap();
+        let f = tmp.path().join("staging.yaml");
+        std::fs::write(&f, "x: 1\n").unwrap();
+
+        register_external_files(tmp.path(), std::slice::from_ref(&f), Some("staging"), true).unwrap();
+        let loaded = read_meta(tmp.path()).unwrap();
+        assert_eq!(loaded.external[0].layer.as_deref(), Some("staging"));
+        assert!(loaded.external[0].if_missing);
+
+        // Re-loading plain clears the recorded options for that file.
+        register_external_files(tmp.path(), std::slice::from_ref(&f), None, false).unwrap();
+        let loaded = read_meta(tmp.path()).unwrap();
+        assert_eq!(loaded.external[0].layer, None);
+        assert!(!loaded.external[0].if_missing);
+    }
+
+    #[test]
+    fn legacy_external_entries_without_load_options_deserialize() {
+        let (tmp, _meta) = make_store();
+        std::fs::write(
+            tmp.path().join(".meta"),
+            "source: /test/dir\ncreated: '2026-01-01T00:00:00+00:00'\nconfigs: []\n\
+             external:\n  - path: /test/dir/old.yaml\n    mtime: 1\n    size: 2\n",
+        )
+        .unwrap();
+        let loaded = read_meta(tmp.path()).unwrap();
+        assert_eq!(loaded.external.len(), 1);
+        assert_eq!(loaded.external[0].path, PathBuf::from("/test/dir/old.yaml"));
+        assert_eq!(loaded.external[0].layer, None, "no layer recorded -> base");
+        assert!(!loaded.external[0].if_missing, "no if-missing recorded -> refreshable");
     }
 
     #[test]

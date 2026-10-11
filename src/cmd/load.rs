@@ -156,7 +156,7 @@ pub(crate) fn load_files(
             }
         }
     }
-    crate::store::meta::register_external_files(store, files)?;
+    crate::store::meta::register_external_files(store, files, opts.layer, opts.if_missing)?;
     Ok(touched)
 }
 

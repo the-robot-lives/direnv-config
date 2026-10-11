@@ -63,8 +63,8 @@ dc_load "$PWD/team.yaml"
 dc_export
 ```
 
-**Verify:** `dc get cluster name` resolves; `dc config get cf access.client_secret` names the external file and line; the store `.meta` lists the file under `external:`.
-**Gotchas:** a key present in *two* files makes `dc config set` refuse, naming every candidate — pass `--file <path>` (validated against registered/`.envrc*` sources) to pick one. Within a layer the *ingest order* decides (later files win); there is no "inline beats external" rule. A registered file that was deleted produces a warning and is skipped — re-run `dc load` (or refresh the registry) to clear it.
+**Verify:** `dc get cluster name` resolves; `dc config get cf access.client_secret` names the external file and line; the store `.meta` lists the file under `external:` (with the load options).
+**Gotchas:** a key present in *two* files makes `dc config set` refuse, naming every candidate — pass `--file <path>` (validated against registered/`.envrc*` sources) to pick one. Within a layer the *ingest order* decides (later files win); there is no "inline beats external" rule. A registered file that was deleted produces a warning and is skipped — re-run `dc load` (or refresh the registry) to clear it. A file loaded with `--if-missing` seeds the store once; its values are store-owned afterwards and later `dc config` refreshes never re-ingest it (so they can't revert your store-side edits to the stale seed). `--replace`/`--replace-key` apply only to the explicit `dc load` invocation — they are never replayed on refresh.
 
 ## How to: layer config across dev / prod / local / secrets
 
