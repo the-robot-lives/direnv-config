@@ -238,5 +238,7 @@ Trust cards ×3:
 - Never oversell install: it is clone + make, prerequisites stated up front, "planned" stays planned.
 - Honesty edge: same-user trust is a real boundary — the page says so instead of implying the key
   file is a security boundary. dc also evaluates shell env (`dc env`); `direnv allow` remains the gate.
-- README staleness deliberately NOT repeated: no Sphinx/ReadTheDocs claim (no conf.py/index.rst in
-  repo); `secretsmap`/`secretcmp`/`audit`/`settings` are internal modules, not subcommands.
+- README inaccuracies corrected in this PR (user-requested): the Sphinx/ReadTheDocs claim is gone
+  (no conf.py/index.rst in repo) and the CLI list now shows the real 22 subcommands. The page never
+  repeated either error (`secretsmap`/`secretcmp`/`audit`/`settings` are internal modules, not
+  subcommands).
