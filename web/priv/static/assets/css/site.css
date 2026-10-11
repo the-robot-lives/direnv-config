@@ -28,6 +28,19 @@ html {
   scroll-behavior: smooth;
 }
 
+/* Respect motion sensitivity for anchor navigation. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* Keyboard focus must never rely on browser defaults alone. */
+:is(a, button, summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 body {
   background: var(--bg);
   color: var(--text);
