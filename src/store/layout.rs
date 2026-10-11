@@ -100,6 +100,7 @@ pub fn ensure_store(dir: &Path) -> Result<PathBuf> {
             created: chrono::Utc::now().to_rfc3339(),
             parent: None,
             configs: Vec::new(),
+            external: Vec::new(),
         };
         crate::store::meta::write_meta(&sp, &meta)?;
     }

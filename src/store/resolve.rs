@@ -198,6 +198,7 @@ mod tests {
             created: "2026-01-01T00:00:00+00:00".to_string(),
             parent: None,
             configs: Vec::new(),
+            external: Vec::new(),
         };
         crate::store::meta::write_meta(&store, &meta).unwrap();
         store
@@ -281,6 +282,7 @@ mod tests {
             created: "2026-01-01T00:00:00+00:00".to_string(),
             parent: None,
             configs: vec!["cfg".to_string()],
+            external: Vec::new(),
         };
         crate::store::meta::write_meta(&parent, &parent_meta).unwrap();
         std::fs::write(parent.join("cfg/.active"), "key: from_parent").unwrap();
@@ -292,6 +294,7 @@ mod tests {
             created: "2026-01-01T00:00:00+00:00".to_string(),
             parent: None,
             configs: vec!["cfg".to_string()],
+            external: Vec::new(),
         };
         crate::store::meta::write_meta(&child, &child_meta).unwrap();
         std::fs::write(child.join("cfg/.active"), "_dc_pruned: true").unwrap();
@@ -313,6 +316,7 @@ mod tests {
             created: "2026-01-01T00:00:00+00:00".to_string(),
             parent: None,
             configs: vec!["db".to_string()],
+            external: Vec::new(),
         };
         crate::store::meta::write_meta(&parent, &pmeta).unwrap();
         std::fs::write(parent.join("db/.active"), "host: shared-db\nport: 5432").unwrap();
@@ -324,6 +328,7 @@ mod tests {
             created: "2026-01-01T00:00:00+00:00".to_string(),
             parent: None,
             configs: vec!["db".to_string()],
+            external: Vec::new(),
         };
         crate::store::meta::write_meta(&child, &cmeta).unwrap();
         std::fs::write(child.join("db/.active"), "port: 3306\nname: mydb").unwrap();
