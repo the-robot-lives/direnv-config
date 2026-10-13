@@ -371,6 +371,24 @@ enum ConfigCmd {
         #[arg(long)]
         note: Option<String>,
     },
+    /// Initialize a new config entry with default structure and optional values
+    Init {
+        subject: String,
+        /// YAML input from stdin to populate the config
+        #[arg(long)]
+        stdin: bool,
+        /// Read initial config from a file
+        #[arg(long, value_name = "FILE")]
+        from: Option<String>,
+        /// Automatically generate secrets for keys marked with 🎲 (alphanumeric, length 32)
+        #[arg(long)]
+        auto_gen: bool,
+        /// Sensitivity tier for auto-generated secrets (default: 1)
+        #[arg(long, short = 't', default_value = "1", value_parser = clap::value_parser!(u8).range(0..=3))]
+        tier: u8,
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -466,6 +484,15 @@ fn main() -> anyhow::Result<()> {
             }
             ConfigCmd::Secure { subject, path, note } => {
                 shadow::secure(&subject, &path, note.as_deref())
+            }
+            ConfigCmd::Init { subject, stdin, from, auto_gen, tier, yes } => {
+                let mut buf = String::new();
+                if stdin {
+                    std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
+                } else if let Some(f) = from {
+                    buf = std::fs::read_to_string(f)?;
+                }
+                cmd::config::init(&subject, &buf, auto_gen, tier, yes)
             }
         },
         Commands::Compare { layer, path, to } => {

@@ -648,6 +648,96 @@ fn set_errata(
     bail!("no `dc_yaml … {subject}` block or registered external subject `{subject}` found — use `dc config setall` or `dc load`")
 }
 
+/// Initialize a new config entry with optional YAML and auto-generated secrets.
+///
+/// If `yaml_input` is empty, creates a minimal `dc_yaml` block. Otherwise,
+/// parses the YAML and auto-generates values for keys marked with 🎲.
+pub fn init(subject: &str, yaml_input: &str, auto_gen: bool, tier: u8, yes: bool) -> Result<()> {
+    let dir = source_dir()?;
+
+    // Parse input YAML if provided, otherwise use an empty map
+    let mut config: serde_yaml::Value = if yaml_input.trim().is_empty() {
+        serde_yaml::Value::Mapping(serde_yaml::Mapping::new())
+    } else {
+        serde_yaml::from_str(yaml_input)?
+    };
+
+    // Auto-generate secrets for keys marked with 🎲
+    if auto_gen {
+        if let serde_yaml::Value::Mapping(ref mut map) = config {
+            generate_secrets_in_place(map, tier)?;
+        }
+    }
+
+    let yaml_str = serde_yaml::to_string(&config)?;
+
+    // Find or create a dc_yaml block for this subject
+    for f in locator::envrc_files(&dir) {
+        let mut lines = read_lines(&f)?;
+        let blocks = locator::scan_blocks(&lines);
+
+        if blocks.iter().any(|b| b.subject == subject) {
+            bail!("subject `{subject}` already exists in {}; use `dc config set` to modify", f.display());
+        }
+
+        // Check if there's a dc_yaml block for any subject in this file
+        if let Some(block) = blocks.first() {
+            // Insert at the end of the first dc_yaml block
+            let insert_at = block.body.end;
+            let indent = "dc_yaml".len() + 1; // minimal indentation for top-level
+
+            let header = format!("dc_yaml {subject} <<'YAML'", );
+            let footer = "YAML";
+
+            eprintln!("Initialize {subject} in {}:{}", f.display(), insert_at + 1);
+            preview(&lines, insert_at.saturating_sub(1), insert_at.saturating_sub(1), Some(&header));
+
+            if !yes && !confirm("Initialize this config?")? {
+                bail!("aborted — no changes written");
+            }
+
+            let mut new_lines = vec![header];
+            new_lines.extend(yaml_str.lines().map(|l| l.to_string()));
+            new_lines.push(footer.to_string());
+
+            let mut out = lines[..insert_at].to_vec();
+            out.extend(new_lines);
+            out.extend_from_slice(&lines[insert_at..]);
+
+            write_lines(&f, &out)?;
+            println!("initialized {subject} at {}:{}", f.display(), insert_at + 1);
+            refresh_store(subject)?;
+            return Ok(());
+        }
+    }
+
+    bail!("no `dc_yaml` block found in any .envrc* file — use `dc yaml` to create one first")
+}
+
+/// Recursively scan a YAML mapping and generate secrets for keys marked with 🎲.
+fn generate_secrets_in_place(map: &mut serde_yaml::Mapping, tier: u8) -> Result<()> {
+    let key_vec: Vec<serde_yaml::Value> = map.keys().cloned().collect();
+
+    for key in key_vec {
+        if let Some(value) = map.get_mut(&key) {
+            match value {
+                serde_yaml::Value::String(s) if s.starts_with('🎲') => {
+                    // Generate a secret for this key
+                    let plaintext = crate::cmd::gen::generate_secret(false, false, 32);
+                    let token = crate::crypto::encode_token(&plaintext, tier, &crate::settings::key()?)?;
+                    *value = serde_yaml::Value::String(token);
+                }
+                serde_yaml::Value::Mapping(ref mut nested_map) => {
+                    generate_secrets_in_place(nested_map, tier)?;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Insert a YAML section relative to an anchor entry.
 // <REMOVED UUID HERE> setall :: Insert a YAML section relative to an anchor entry.
 pub fn setall(

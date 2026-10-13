@@ -16,6 +16,10 @@ pub fn run(hex: bool, base64_mode: bool, length: usize, raw: bool, tier: u8) -> 
     Ok(())
 }
 
+pub fn generate_secret(hex: bool, base64_mode: bool, length: usize) -> String {
+    generate(hex, base64_mode, length)
+}
+
 fn generate(hex: bool, base64_mode: bool, length: usize) -> String {
     let mut rng = rand::thread_rng();
 
