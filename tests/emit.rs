@@ -327,6 +327,56 @@ fn emit_dry_run_writes_nothing_and_never_prints_values() {
 }
 
 #[test]
+fn emit_accepts_absolute_gitignored_output_without_force() {
+    // W1 regression: the safety gate must resolve an absolute --output to a
+    // repo-relative pathspec before asking git — an absolute path used to
+    // hard-error ("outside repository") and force --force on a valid target.
+    let (fx, a) = Fixture::new("emit-abs-a");
+    fx.seed_source_store(&a);
+
+    let abs_out = a.join("secrets.dc.abs.yaml");
+    let out = fx.run_in(&a, &["emit", "--output", abs_out.to_str().unwrap()], None);
+    assert!(
+        out.status.success(),
+        "absolute gitignored output must pass the gate without --force:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    assert!(abs_out.exists(), "absolute output must be written");
+    // tracked absolute target is still refused (the gate, not the path form, decides)
+    git(&a, &["add", "-f", "secrets.dc.abs.yaml"]);
+    let out = fx.run_in(&a, &["emit", "--output", abs_out.to_str().unwrap()], None);
+    assert!(
+        !out.status.success(),
+        "tracked absolute output must be refused without --force"
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("tracked"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn emit_dry_run_previews_unignored_paths_without_force() {
+    // N4 regression: --dry-run writes nothing, so it must return before the
+    // gitignore safety gate and never demand --force just to show the plan.
+    let (fx, a) = Fixture::new("emit-dry-b");
+    fx.seed_source_store(&a);
+
+    let out = fx.run_in(&a, &["emit", "--output", "out.yaml", "--dry-run"], None);
+    assert!(
+        out.status.success(),
+        "dry-run of an unignored path must not demand --force:\nstderr: {}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("dry-run:"), "{stdout}");
+    assert!(stdout.contains("out.yaml"), "{stdout}");
+    assert!(!a.join("out.yaml").exists(), "dry-run must not write the target");
+}
+
+#[test]
 fn emit_refuses_committable_targets_unless_forced() {
     let (fx, a) = Fixture::new("emit-safe-a");
     fx.seed_source_store(&a);
