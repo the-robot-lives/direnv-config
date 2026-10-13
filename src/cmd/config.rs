@@ -349,6 +349,171 @@ fn external_errata_compute(
     }
 }
 
+
+/// Placement of a `-p` parents-insert's new top-most missing section among
+/// its siblings (mutually exclusive; the default with `-p` is [`Placement::Auto`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Placement {
+    /// Alphabetical among the existing siblings at the deepest existing
+    /// ancestor; appended at the end when there are no siblings.
+    Auto,
+    /// Insert the new section above the anchor sibling path.
+    Above(String),
+    /// Insert the new section below the anchor sibling path — after its whole
+    /// block (the anchor's subtree is skipped, so the section lands as a true
+    /// sibling, not a child).
+    Below(String),
+}
+
+/// Longest dotted-prefix of `path` already present in `locs` (`None` = even
+/// the first component is missing — the new section is top-level).
+fn deepest_prefix(locs: &[KeyLoc], path: &str) -> Option<String> {
+    let comps: Vec<&str> = path.split('.').collect();
+    for n in (1..comps.len()).rev() {
+        let p = comps[..n].join(".");
+        if locs.iter().any(|l| l.path == p) {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// Direct children of `prefix` (top-level keys when `prefix` is `None`), in
+/// file order.
+fn children_of<'a>(locs: &'a [KeyLoc], prefix: Option<&str>) -> Vec<&'a KeyLoc> {
+    locs.iter()
+        .filter(|l| match prefix {
+            Some(p) => l
+                .path
+                .strip_prefix(p)
+                .and_then(|rest| rest.strip_prefix('.'))
+                .is_some_and(|rest| !rest.contains('.')),
+            None => !l.path.contains('.'),
+        })
+        .collect()
+}
+
+/// End index (exclusive) of the subtree rooted at `loc`, bounded by `body_end`
+/// (the heredoc terminator / external subject span end).
+fn subtree_end(lines: &[String], loc: &KeyLoc, body_end: usize) -> usize {
+    let mut idx = if loc.is_block_scalar { loc.value_end + 1 } else { loc.key_line + 1 };
+    while idx < body_end {
+        let trimmed = lines[idx].trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            idx += 1;
+            continue;
+        }
+        let ind = lines[idx].len() - trimmed.len();
+        if ind > loc.indent {
+            idx += 1;
+        } else {
+            break;
+        }
+    }
+    idx
+}
+
+/// Compute a `-p` insertion for a path whose parent chain is (partly)
+/// missing: returns `(insert index, chain lines)`. The missing components
+/// nest under the deepest existing ancestor (or the subject's top level);
+/// the leaf carries the 🔒 marker + token exactly like [`errata_compute`].
+/// `body_end` bounds the subject body; `top_indent` is a new top-level
+/// section's indent.
+#[allow(clippy::too_many_arguments)]
+fn parents_compute(
+    lines: &[String],
+    locs: &[KeyLoc],
+    subject: &str,
+    path: &str,
+    tier: u8,
+    token: &str,
+    body_end: usize,
+    top_indent: usize,
+    placement: &Placement,
+) -> Result<(usize, Vec<String>)> {
+    let comps: Vec<&str> = path.split('.').collect();
+    let prefix = deepest_prefix(locs, path);
+    let base = prefix.as_ref().map(|p| p.split('.').count()).unwrap_or(0);
+    let missing: Vec<&str> = comps[base..].to_vec();
+    let head = missing[0];
+
+    // Anchor + nesting level. When a prefix exists the level is forced (the
+    // chain must nest under it); otherwise the anchor's own level defines
+    // where the new section nests.
+    let anchor = match placement {
+        Placement::Above(a) | Placement::Below(a) => {
+            let anchor = locs.iter().find(|l| l.path == *a).ok_or_else(|| {
+                anyhow::anyhow!("anchor `{a}` not found under subject `{subject}`")
+            })?;
+            if let Some(p) = &prefix {
+                let want = locs.iter().find(|l| &l.path == p).unwrap().indent + 2;
+                if anchor.indent != want {
+                    bail!(
+                        "anchor `{a}` is not a sibling of the new section `{head}` (expected indent {want}, found {})",
+                        anchor.indent
+                    );
+                }
+            }
+            Some(anchor)
+        }
+        Placement::Auto => None,
+    };
+    let indent = match (&anchor, &prefix) {
+        (Some(a), _) => a.indent,
+        (None, Some(p)) => locs.iter().find(|l| &l.path == p).unwrap().indent + 2,
+        (None, None) => top_indent,
+    };
+
+    // The chain: nested mappings; the leaf carries the marker + token.
+    let mut chain: Vec<String> = Vec::with_capacity(missing.len());
+    for (i, c) in missing.iter().enumerate() {
+        let ind = " ".repeat(indent + 2 * i);
+        if i + 1 < missing.len() {
+            chain.push(format!("{ind}{c}:"));
+        } else {
+            chain.push(format!("{ind}{c}: \"{} {}\"", marker(tier), token));
+        }
+    }
+
+    let idx = match placement {
+        Placement::Above(_) => anchor.as_ref().unwrap().key_line,
+        Placement::Below(_) => {
+            let a = anchor.as_ref().unwrap();
+            subtree_end(lines, a, body_end)
+        }
+        Placement::Auto => {
+            let sibs = children_of(locs, prefix.as_deref());
+            // First existing sibling sorting after the new section name…
+            let spot = {
+                let mut names: Vec<&str> = sibs.iter().map(|s| leaf_key(&s.path)).collect();
+                names.sort();
+                names.into_iter().find(|n| *n > head).and_then(|n| {
+                    sibs.iter().find(|s| leaf_key(&s.path) == n).copied()
+                })
+            };
+            match spot {
+                Some(s) => s.key_line,
+                // …else append after the last sibling (file order)…
+                None => match sibs.last() {
+                    Some(last) => subtree_end(lines, last, body_end),
+                    // …else after the deepest existing ancestor's subtree…
+                    None => match prefix.as_deref() {
+                        Some(p) => subtree_end(
+                            lines,
+                            locs.iter().find(|l| l.path == p).unwrap(),
+                            body_end,
+                        ),
+                        // …else at the very end of the subject body (before
+                        // the heredoc terminator / external span end).
+                        None => body_end,
+                    },
+                },
+            }
+        }
+    };
+    Ok((idx, chain))
+}
+
 /// Ask a y/N question on stdin. Errors (instead of reading EOF as "no") when
 /// stdin is not a terminal, so non-interactive callers must pass `--yes`.
 pub(crate) fn confirm(prompt: &str) -> Result<bool> {
@@ -560,6 +725,8 @@ pub fn set(
     encrypted: bool,
     yes: bool,
     file: Option<&str>,
+    parents: bool,
+    placement: &Placement,
 ) -> Result<()> {
     let plaintext = acquire_value(value, from, stdin_flag)?;
     // Using stdin for the value means we cannot also prompt on stdin.
@@ -583,7 +750,7 @@ pub fn set(
     }
 
     if locs.is_empty() {
-        return set_errata(subject, path, &plaintext, encrypted, yes, forced.as_deref());
+        return set_errata(subject, path, &plaintext, encrypted, yes, forced.as_deref(), parents, placement);
     }
 
     let loc = &locs[0];
@@ -621,6 +788,8 @@ fn set_errata(
     encrypted: bool,
     yes: bool,
     forced: Option<&Path>,
+    parents: bool,
+    placement: &Placement,
 ) -> Result<()> {
     let store = crate::store::find_current_store()?;
     let meta = crate::store::meta::read_meta(&store)?;
@@ -655,26 +824,59 @@ fn set_errata(
         } else {
             crate::crypto::encode_token(plaintext, 0, &crate::settings::key()?)?
         };
-        let computed = if is_external {
-            let spans = locator::external_subject_spans(&lines);
-            let locs = locator::index_external_lines(&lines, f);
-            external_errata_compute(&lines, &locs, &spans, subject, path, 0, &token)
+        let computed: Result<(usize, Vec<String>)> = if parents {
+            // -p routes every insert through the parents machinery — the
+            // chain may be a single missing leaf, in which case placement
+            // still positions it among its siblings.
+            if is_external {
+                let spans = locator::external_subject_spans(&lines);
+                let Some(span) = spans.iter().find(|s| s.name == subject) else {
+                    continue;
+                };
+                let locs = locator::index_external_lines(&lines, f);
+                let top = span.child_indent.unwrap_or(span.indent + 2);
+                parents_compute(&lines, &locs, subject, path, 0, &token, span.body.end, top, placement)
+            } else {
+                let blocks = locator::scan_blocks(&lines);
+                let Some(block) = blocks.iter().find(|b| b.subject == subject) else {
+                    continue;
+                };
+                let locs = locator::index_block(block, &lines, Path::new(""));
+                parents_compute(&lines, &locs, subject, path, 0, &token, block.body.end, 0, placement)
+            }
         } else {
-            errata_compute(&lines, subject, path, 0, &token)
+            let computed = if is_external {
+                let spans = locator::external_subject_spans(&lines);
+                let locs = locator::index_external_lines(&lines, f);
+                external_errata_compute(&lines, &locs, &spans, subject, path, 0, &token)
+            } else {
+                errata_compute(&lines, subject, path, 0, &token)
+            };
+            match computed {
+                Some((idx, new_line)) => Ok((idx, vec![new_line])),
+                None => bail!(
+                    "subject `{subject}` exists in {} but parent of `{path}` was not found — pass -p/--parents (with --below <PATH>/--above <PATH>/--auto) or use `dc config setall`",
+                    f.display()
+                ),
+            }
         };
-        let Some((idx, new_line)) = computed else {
-            bail!(
-                "subject `{subject}` exists in {} but parent of `{path}` was not found — use `dc config setall`",
-                f.display()
-            );
-        };
-        let display = redact_for_display(&new_line);
+        let (idx, new_lines) = computed.map_err(|e| anyhow::anyhow!("{e} (in {})", f.display()))?;
         eprintln!("Insert {subject} {path} into {}:{}", f.display(), idx + 1);
-        preview(&lines, idx.saturating_sub(1), idx.saturating_sub(1), Some(&display));
+        if new_lines.len() == 1 {
+            let display = redact_for_display(&new_lines[0]);
+            preview(&lines, idx.saturating_sub(1), idx.saturating_sub(1), Some(&display));
+        } else {
+            preview(&lines, idx.saturating_sub(1), idx.saturating_sub(1), None);
+            for l in &new_lines {
+                eprintln!("  ✚  {}", redact_for_display(l));
+            }
+        }
         if !yes && !confirm("Insert this entry?")? {
             bail!("aborted — no changes written");
         }
-        lines.insert(idx, new_line);
+        for (off, l) in new_lines.iter().enumerate() {
+            lines.insert(idx + off, l.clone());
+        }
         write_lines(f, &lines)?;
         eprintln!("inserted {subject} {path} at {}:{}", f.display(), idx + 1);
         refresh_store(subject, Some(f))?;
@@ -1266,5 +1468,158 @@ mod tests {
             Some(serde_yaml::Value::String("heredoc".into())),
             "the refreshable heredoc key is still ingested"
         );
+    }
+}
+
+#[cfg(test)]
+mod parents_tests {
+    use super::*;
+    use crate::envrc::locator::{index_block, scan_blocks};
+
+    const KEY: [u8; 32] = [7u8; 32];
+
+    fn lines(s: &str) -> Vec<String> {
+        s.lines().map(|l| l.to_string()).collect()
+    }
+
+    fn token_of(plain: &str) -> String {
+        crate::crypto::encode_token(plain, 0, &KEY).unwrap()
+    }
+
+    fn locs_of(src: &[String]) -> Vec<KeyLoc> {
+        let block = &scan_blocks(src)[0];
+        index_block(block, src, Path::new("/x/.envrc"))
+    }
+
+    fn render(src: &[String], idx: usize, chain: &[String]) -> Vec<String> {
+        let mut out = src[..idx].to_vec();
+        out.extend_from_slice(chain);
+        out.extend_from_slice(&src[idx..]);
+        out
+    }
+
+    const FIXTURE: &str = "dc_yaml --no-bump cf <<'YAML'\nsendgrid:\n  api_key: \"plain s\"\nstripe:\n  key: k\nYAML\n";
+
+    #[test]
+    fn deep_missing_below_anchor_lands_after_whole_anchor_block() {
+        let src = lines(FIXTURE);
+        let locs = locs_of(&src);
+        let tok = token_of("S3cr3t");
+        let (idx, chain) =
+            parents_compute(&src, &locs, "cf", "inference.jev.api_key", 0, &tok, 5, 0,
+                            &Placement::Below("sendgrid".into())).unwrap();
+        assert_eq!(idx, 3, "after sendgrid's subtree (stripe: comes next)");
+        assert_eq!(chain[0], "inference:");
+        assert_eq!(chain[1], "  jev:");
+        assert!(chain[2].starts_with("    api_key: \"🔒 🔒:v1:"));
+        let out = render(&src, idx, &chain);
+        assert_eq!(out[3], "inference:");
+        assert_eq!(out[6], "stripe:");
+        assert_eq!(out.last().unwrap(), "YAML");
+    }
+
+    #[test]
+    fn deep_missing_above_anchor_lands_before_anchor_line() {
+        let src = lines(FIXTURE);
+        let locs = locs_of(&src);
+        let tok = token_of("v");
+        let (idx, _) =
+            parents_compute(&src, &locs, "cf", "a.b.c", 0, &tok, 5, 0,
+                            &Placement::Above("stripe".into())).unwrap();
+        assert_eq!(idx, 3, "directly before `stripe:`");
+    }
+
+    #[test]
+    fn auto_alphabetical_first_middle_and_last() {
+        let src = lines(FIXTURE);
+        let locs = locs_of(&src);
+        let tok = token_of("v");
+        // before sendgrid (first sibling)
+        let (idx, _) = parents_compute(&src, &locs, "cf", "aaa.key", 0, &tok, 5, 0,
+                                       &Placement::Auto).unwrap();
+        assert_eq!(idx, 1);
+        // between sendgrid and stripe (smoke sorts between them)
+        let (idx, _) = parents_compute(&src, &locs, "cf", "smoke.key", 0, &tok, 5, 0,
+                                       &Placement::Auto).unwrap();
+        assert_eq!(idx, 3);
+        // appended at the end, before the terminator
+        let (idx, _) = parents_compute(&src, &locs, "cf", "zzz.key", 0, &tok, 5, 0,
+                                       &Placement::Auto).unwrap();
+        assert_eq!(idx, 5);
+    }
+
+    #[test]
+    fn auto_with_no_siblings_appends_before_terminator() {
+        let src = lines("dc_yaml --no-bump cf <<'YAML'\ntop: 1\nYAML\n");
+        let locs = locs_of(&src);
+        let tok = token_of("v");
+        let (idx, chain) = parents_compute(&src, &locs, "cf", "x.a.b", 0, &tok, 3, 0,
+                                           &Placement::Auto).unwrap();
+        assert_eq!(idx, 2, "before the YAML terminator");
+        assert_eq!(chain[0], "x:");
+        assert_eq!(chain[1], "  a:");
+        assert!(chain[2].starts_with("    b: \"🔒 🔒:v1:"));
+    }
+
+    #[test]
+    fn partial_parents_nest_under_deepest_existing_ancestor() {
+        let src = lines("dc_yaml --no-bump cf <<'YAML'\ninference:\n  kv: k\nYAML\n");
+        let locs = locs_of(&src);
+        let tok = token_of("v");
+        // jev < kv alphabetically → inserted before kv, nested under inference
+        let (idx, chain) = parents_compute(&src, &locs, "cf", "inference.jev.api_key", 0, &tok, 3, 0,
+                                           &Placement::Auto).unwrap();
+        assert_eq!(idx, 2);
+        assert_eq!(chain[0], "  jev:");
+        assert!(chain[1].starts_with("    api_key: \"🔒 🔒:v1:"));
+        // anchor at the wrong level is rejected when a prefix exists
+        let err = parents_compute(&src, &locs, "cf", "inference.jev.api_key", 0, &tok, 3, 0,
+                                  &Placement::Below("inference".into())).unwrap_err();
+        assert!(err.to_string().contains("not a sibling"), "{err}");
+        // sibling-level anchor under the prefix is honoured
+        let (idx, chain) = parents_compute(&src, &locs, "cf", "inference.alpha.api_key", 0, &tok, 3, 0,
+                                           &Placement::Below("inference.kv".into())).unwrap();
+        assert_eq!(idx, 3, "after kv's subtree");
+        assert_eq!(chain[0], "  alpha:");
+    }
+
+    #[test]
+    fn existing_parent_auto_positions_leaf_among_siblings() {
+        let src = lines("dc_yaml --no-bump cf <<'YAML'\ngrp:\n  zed: z\nYAML\n");
+        let locs = locs_of(&src);
+        let tok = token_of("v");
+        let (idx, chain) = parents_compute(&src, &locs, "cf", "grp.aaa", 0, &tok, 3, 0,
+                                           &Placement::Auto).unwrap();
+        assert_eq!(idx, 2, "aaa < zed → before zed");
+        assert_eq!(chain.len(), 1);
+        assert!(chain[0].starts_with("  aaa: \"🔒 🔒:v1:"));
+    }
+
+    #[test]
+    fn anchor_missing_in_subject_is_a_clear_error() {
+        let src = lines(FIXTURE);
+        let locs = locs_of(&src);
+        let tok = token_of("v");
+        let err = parents_compute(&src, &locs, "cf", "x.y.z", 0, &tok, 5, 0,
+                                  &Placement::Below("mailgun".into())).unwrap_err();
+        assert!(err.to_string().contains("anchor `mailgun` not found"), "{err}");
+    }
+
+    #[test]
+    fn external_file_deep_chain_below_anchor() {
+        use crate::envrc::locator::{external_subject_spans, index_external_lines};
+        let src = lines("app:\n  name: noizu\n");
+        let spans = external_subject_spans(&src);
+        let locs = index_external_lines(&src, Path::new("/x/team.yaml"));
+        let tok = token_of("v");
+        let span = spans.iter().find(|s| s.name == "app").unwrap();
+        let top = span.child_indent.unwrap_or(span.indent + 2);
+        let (idx, chain) = parents_compute(&src, &locs, "app", "db.conn.host", 0, &tok,
+                                           span.body.end, top,
+                                           &Placement::Below("name".into())).unwrap();
+        assert_eq!(idx, 2, "after name's subtree (span end)");
+        assert_eq!(chain[0], "  db:");
+        assert_eq!(chain[1], "    conn:");
+        assert!(chain[2].starts_with("      host: \"🔒 🔒:v1:"));
     }
 }

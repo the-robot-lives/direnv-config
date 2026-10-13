@@ -429,6 +429,19 @@ enum ConfigCmd {
         /// Force the destination file (registered external file or .envrc*)
         #[arg(long, value_name = "FILE")]
         file: Option<String>,
+        /// Create any missing parent sections of PATH as nested YAML mappings
+        #[arg(short = 'p', long)]
+        parents: bool,
+        /// With -p: insert the new top-most section above this sibling path
+        #[arg(long, value_name = "PATH")]
+        above: Option<String>,
+        /// With -p: insert the new top-most section below this sibling path
+        #[arg(long, value_name = "PATH")]
+        below: Option<String>,
+        /// With -p: place the new top-most section alphabetically among its
+        /// siblings (the default with -p)
+        #[arg(long)]
+        auto: bool,
     },
     /// Insert a YAML section (from stdin) above/below an anchor entry
     Setall {
@@ -523,7 +536,23 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Config { sub } => match sub {
             ConfigCmd::Get { subject, path } => cmd::config::get(&subject, &path),
-            ConfigCmd::Set { subject, path, value, from, stdin, encrypted, yes, file } => {
+            ConfigCmd::Set { subject, path, value, from, stdin, encrypted, yes, file, parents, above, below, auto } => {
+                let spots = above.is_some() as u8 + below.is_some() as u8 + auto as u8;
+                if spots > 1 {
+                    anyhow::bail!("use at most one of --above <PATH>, --below <PATH>, --auto");
+                }
+                if !parents && spots == 1 {
+                    anyhow::bail!(
+                        "--above/--below/--auto require -p/--parents (when every parent already exists they are no-ops — drop the flag)"
+                    );
+                }
+                let placement = if let Some(a) = above {
+                    cmd::config::Placement::Above(a)
+                } else if let Some(b) = below {
+                    cmd::config::Placement::Below(b)
+                } else {
+                    cmd::config::Placement::Auto
+                };
                 cmd::config::set(
                     &subject,
                     &path,
@@ -533,6 +562,8 @@ fn main() -> anyhow::Result<()> {
                     encrypted,
                     yes,
                     file.as_deref(),
+                    parents,
+                    &placement,
                 )
             }
             ConfigCmd::Setall { subject, above, below, yes, file } => {
