@@ -181,10 +181,15 @@ enum Commands {
         #[arg(long)]
         hard: bool,
     },
-    /// List secret key names per config
+    /// List every key name in scope for this project (merged across .envrc*
+    /// dc_yaml blocks, registered external files, and store layers) — values
+    /// are never printed
     Secrets {
         #[arg(long)]
         json: bool,
+        /// Annotate each key with its source(s) (`file:line` or `store:<subject>/<layer>`)
+        #[arg(long)]
+        sources: bool,
     },
     /// Browse/search config entries with secrets masked (pipes to bat if available)
     Bat {
@@ -265,6 +270,40 @@ enum Commands {
     Keys {
         #[command(subcommand)]
         sub: KeysCmd,
+    },
+    /// Encryption inventory + in-place (un)seal over project-scope sources.
+    /// Interactive when stdin is a tty; store layer files are never rewritten.
+    Seal {
+        /// Print the inventory (key | file:line | state) and exit
+        #[arg(long)]
+        list: bool,
+        /// Machine-readable JSON (with --list)
+        #[arg(long)]
+        json: bool,
+        /// Non-interactive mode: requires an --encrypt/--decrypt action
+        #[arg(long)]
+        headless: bool,
+        /// Headless: seal these key(s) (`subject.path`, repeatable)
+        #[arg(long = "encrypt", value_name = "KEY", num_args = 1..)]
+        encrypt: Vec<String>,
+        /// Headless: seal every plain entry in scope
+        #[arg(long)]
+        encrypt_all_plain: bool,
+        /// Headless: unseal these key(s) (`subject.path`, repeatable)
+        #[arg(long = "decrypt", value_name = "KEY", num_args = 1..)]
+        decrypt: Vec<String>,
+        /// Headless: unseal every sealed entry in scope
+        #[arg(long)]
+        decrypt_all: bool,
+        /// Restrict scope to entries in this file
+        #[arg(long, value_name = "FILE")]
+        file: Option<String>,
+        /// Preview the changes without writing
+        #[arg(long)]
+        dry_run: bool,
+        /// Apply the changes without prompting
+        #[arg(long)]
+        yes: bool,
     },
 }
 
@@ -418,8 +457,8 @@ fn main() -> anyhow::Result<()> {
         Commands::List => {
             cmd::list::run()
         }
-        Commands::Secrets { json } => {
-            cmd::secrets::run(json)
+        Commands::Secrets { json, sources } => {
+            cmd::secrets::run(json, sources)
         }
         Commands::Bat { subject, scope, all, reveal, flat, filter_key, filter_value, exclude_key, exclude_value } => {
             cmd::bat::run(
@@ -490,5 +529,19 @@ fn main() -> anyhow::Result<()> {
             KeysCmd::Lock { yes } => cmd::keys::run_lock(yes),
             KeysCmd::Unlock { yes } => cmd::keys::run_unlock(yes),
         },
+        Commands::Seal { list, json, headless, encrypt, encrypt_all_plain, decrypt, decrypt_all, file, dry_run, yes } => {
+            cmd::seal::run(cmd::seal::SealArgs {
+                list,
+                json,
+                headless,
+                encrypt,
+                encrypt_all_plain,
+                decrypt,
+                decrypt_all,
+                file: file.as_deref(),
+                dry_run,
+                yes,
+            })
+        }
     }
 }

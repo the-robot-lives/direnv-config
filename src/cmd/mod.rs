@@ -19,5 +19,6 @@ pub mod status;
 pub mod list;
 pub mod purge;
 pub mod secrets;
+pub mod seal;
 pub mod gen_secrets;
 pub mod keys;

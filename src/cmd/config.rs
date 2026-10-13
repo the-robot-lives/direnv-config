@@ -4,14 +4,14 @@
 //! state store), encrypting secret values at rest inline as `🔒 🔒:…` and
 //! preserving all surrounding formatting/comments via line splicing.
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 
 use crate::envrc::locator::{self, KeyLoc};
 use crate::secret::PADLOCK;
 
-fn read_lines(path: &Path) -> Result<Vec<String>> {
+pub(crate) fn read_lines(path: &Path) -> Result<Vec<String>> {
     let content = std::fs::read_to_string(path)?;
     Ok(content.lines().map(|s| s.to_string()).collect())
 }
@@ -23,12 +23,40 @@ fn write_lines(path: &Path, lines: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn marker(tier: u8) -> String {
+/// Atomic variant of [`write_lines`]: writes a sibling temp file, preserves
+/// the original's unix permissions, then renames over the target — a crash
+/// mid-write can never leave a truncated source file behind.
+pub(crate) fn write_lines_atomic(path: &Path, lines: &[String]) -> Result<()> {
+    use std::io::Write as _;
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let fname = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let tmp = dir.join(format!(".{fname}.dc-tmp-{}", std::process::id()));
+    let mut body = lines.join("\n");
+    body.push('\n');
+    {
+        let mut f = std::fs::File::create(&tmp)
+            .with_context(|| format!("create temp file {}", tmp.display()))?;
+        f.write_all(body.as_bytes())?;
+        f.sync_all().ok();
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(path) {
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(meta.permissions().mode())).ok();
+        }
+    }
+    std::fs::rename(&tmp, path)
+        .with_context(|| format!("atomically replace {}", path.display()))?;
+    Ok(())
+}
+
+pub(crate) fn marker(tier: u8) -> String {
     let bangs: String = std::iter::repeat_n('❗', tier.min(3) as usize).collect();
     format!("{PADLOCK}{bangs}")
 }
 
-fn leaf_key(path: &str) -> &str {
+pub(crate) fn leaf_key(path: &str) -> &str {
     path.rsplit('.').next().unwrap_or(path)
 }
 
@@ -78,7 +106,7 @@ fn find_locs_in(
 }
 
 /// Compare two paths, following symlinks when both exist.
-fn same_path(a: &Path, b: &Path) -> bool {
+pub(crate) fn same_path(a: &Path, b: &Path) -> bool {
     if a == b {
         return true;
     }
@@ -90,7 +118,7 @@ fn same_path(a: &Path, b: &Path) -> bool {
 
 /// Resolve a `--file` override to an absolute path, validating it is a known
 /// source: a registered external file or an `.envrc*` file in the source dir.
-fn resolve_forced_file(file: &str) -> Result<PathBuf> {
+pub(crate) fn resolve_forced_file(file: &str) -> Result<PathBuf> {
     let store = crate::store::find_current_store()?;
     let meta = crate::store::meta::read_meta(&store)?;
     let target = std::fs::canonicalize(file)
@@ -127,7 +155,7 @@ fn errata_candidates(
 }
 
 /// Current raw value text for a location (block scalars joined).
-fn current_value_text(lines: &[String], loc: &KeyLoc) -> String {
+pub(crate) fn current_value_text(lines: &[String], loc: &KeyLoc) -> String {
     if loc.is_block_scalar {
         lines[loc.value_start..=loc.value_end.min(lines.len() - 1)].join("\n")
     } else {
@@ -146,13 +174,13 @@ fn existing_tier(lines: &[String], loc: &KeyLoc) -> u8 {
 }
 
 /// Compute the replacement line for a located key.
-fn compute_set_line(loc: &KeyLoc, tier: u8, token: &str) -> String {
+pub(crate) fn compute_set_line(loc: &KeyLoc, tier: u8, token: &str) -> String {
     let indent = " ".repeat(loc.indent);
     format!("{indent}{}: \"{} {}\"", leaf_key(&loc.path), marker(tier), token)
 }
 
 /// Splice a single replacement line over a location's key+value range.
-fn splice_set(lines: &[String], loc: &KeyLoc, new_line: String) -> Vec<String> {
+pub(crate) fn splice_set(lines: &[String], loc: &KeyLoc, new_line: String) -> Vec<String> {
     let after = if loc.is_block_scalar {
         loc.value_end + 1
     } else {
@@ -448,7 +476,7 @@ fn refresh_jobs(
 /// replace belongs to the explicit `dc load` invocation only. Without this,
 /// `dc get` and `infisical-populate-secrets` keep serving the pre-edit value
 /// until the shell re-sources the files.
-fn refresh_store(subject: &str, edited: Option<&Path>) -> Result<()> {
+pub(crate) fn refresh_store(subject: &str, edited: Option<&Path>) -> Result<()> {
     let store = crate::store::find_current_store()?;
     let _lock = crate::store::lock_store(&store)?;
     let meta = crate::store::meta::read_meta(&store)?;
