@@ -60,6 +60,14 @@ dc secrets                # list every in-scope key name (.envrc* heredocs + dc-
                           # (--sources annotates each key with its file:line / store:<subject>/<layer> origins)
 dc seal                   # interactive seal/unseal selector over project-scope sources (never touches store files)
                           # (--list inventory; --headless --encrypt/--decrypt KEY… [--dry-run] [--yes];
+                          #  --match <PAT> / --except <PAT> (repeatable) select by LEAF KEY NAME only — the last
+                          #  dot-segment (db_password of app.db.password), never the subject or full path;
+                          #  patterns are case-insensitive wildcards, anchored to the whole name:
+                          #  `*` = any run of characters (incl. none), `?` = exactly one char, all else literal;
+                          #  --match patterns OR together, --except always wins over --match; selectors apply in
+                          #  every mode (--list, TUI, headless, explicit or bulk actions) and compose with --dry-run
+                          #  and --json (which reports `selected` + `selected_keys`); matching zero keys exits
+                          #  non-zero — never a silent success;
                           #  decrypt restores `🔒 <value>` plaintext-at-rest for bare originals;
                           #  multi-line block-scalar values collapse to one quoted line on rewrite (known limitation);
                           #  ⛔ shadow keys are never modified)
