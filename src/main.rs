@@ -271,6 +271,24 @@ enum Commands {
         #[command(subcommand)]
         sub: KeysCmd,
     },
+    /// Emit a loadable YAML secret file from the store's subjects (the inverse
+    /// of `dc load`). Values are never printed; output paths must be covered
+    /// by .gitignore unless --force. 🔒 tokens re-emit byte-identical.
+    Emit {
+        /// Output file (default secrets.dc.yaml); layer variants gain
+        /// `.<layer>.yaml`, special subjects (`_dc`, `auto`) their own files
+        #[arg(long, value_name = "FILE")]
+        output: Option<String>,
+        /// Only emit these subject(s) (repeatable)
+        #[arg(long, value_name = "SUBJECT")]
+        subject: Vec<String>,
+        /// Print a summary (subject/key counts, target paths) without writing
+        #[arg(long)]
+        dry_run: bool,
+        /// Write even when the target is git-tracked or not .gitignore-covered
+        #[arg(long)]
+        force: bool,
+    },
     /// Encryption inventory + in-place (un)seal over project-scope sources.
     /// Interactive when stdin is a tty; store layer files are never rewritten.
     Seal {
@@ -529,6 +547,14 @@ fn main() -> anyhow::Result<()> {
             KeysCmd::Lock { yes } => cmd::keys::run_lock(yes),
             KeysCmd::Unlock { yes } => cmd::keys::run_unlock(yes),
         },
+        Commands::Emit { output, subject, dry_run, force } => {
+            cmd::emit::run(cmd::emit::EmitArgs {
+                output: output.as_deref(),
+                subjects: &subject,
+                dry_run,
+                force,
+            })
+        }
         Commands::Seal { list, json, headless, encrypt, encrypt_all_plain, decrypt, decrypt_all, file, dry_run, yes } => {
             cmd::seal::run(cmd::seal::SealArgs {
                 list,
