@@ -214,6 +214,12 @@ pub fn run(args: EmitArgs) -> Result<()> {
     }
 
     for p in &plans {
+        // the gate may bless a gitignored target whose parents do not exist
+        // yet — create them so the write lands instead of erroring
+        if let Some(dir) = p.path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir)
+                .with_context(|| format!("failed to create parent dir for {}", p.path.display()))?;
+        }
         std::fs::write(&p.path, &p.yaml)
             .with_context(|| format!("failed to write {}", p.path.display()))?;
     }
@@ -439,12 +445,54 @@ fn repo_relative(cwd: &Path, abs_path: &Path) -> Option<(PathBuf, String)> {
     // macOS $TMPDIR-style symlink prefixes (/var → /private/var): resolve both
     // sides before comparing, falling back to the raw forms.
     let top_res = std::fs::canonicalize(&top).unwrap_or_else(|_| top.clone());
-    let parent = abs_path.parent().unwrap_or_else(|| Path::new("."));
-    let parent_res = std::fs::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf());
-    let resolved = match abs_path.file_name() {
-        Some(name) => parent_res.join(name),
-        None => parent_res,
+
+    // The output (and its parent directory) may not exist yet, so the parent
+    // cannot be canonicalized directly. Canonicalize the nearest EXISTING
+    // ancestor instead and resolve the nonexistent remainder lexically: the
+    // pathspec handed to git must always be toplevel-relative — the raw
+    // absolute fallback makes git hard-error ("outside repository"),
+    // re-introducing the W1 failure this gate replaced.
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    let mut probe = abs_path.to_path_buf();
+    let anc = loop {
+        match std::fs::canonicalize(&probe) {
+            Ok(p) => break p,
+            Err(_) => match probe.components().next_back() {
+                Some(std::path::Component::Normal(name)) => {
+                    tail.push(name.to_owned());
+                    probe.pop();
+                }
+                Some(std::path::Component::ParentDir) => {
+                    tail.push(std::ffi::OsString::from(".."));
+                    probe.pop();
+                }
+                _ => return None, // no resolvable anchor within the path
+            },
+        }
     };
+
+    // Lexical `.`/`..` resolution over the tail (shallowest first); a `..`
+    // past the tail pops the canonical ancestor itself, so `resolved` never
+    // carries dot components. No symlink assumptions: the tail names do not
+    // exist, so there is nothing to resolve on disk.
+    let mut parts: Vec<std::ffi::OsString> = Vec::new();
+    let mut resolved = anc;
+    for name in tail.into_iter().rev() {
+        if name.as_os_str() == ".." {
+            if parts.pop().is_none() && !resolved.pop() {
+                return None;
+            }
+            continue;
+        }
+        if name.as_os_str() == "." {
+            continue;
+        }
+        parts.push(name);
+    }
+    for part in parts {
+        resolved.push(part);
+    }
+
     let rel = resolved
         .strip_prefix(&top_res)
         .or_else(|_| resolved.strip_prefix(&top))
