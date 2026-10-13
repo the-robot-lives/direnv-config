@@ -141,7 +141,7 @@ pub fn set(
     let (_section, _key, spec) = dc_hits[0];
     let (cfg, path) = spec.dc.clone().unwrap();
     // Delegate to the config edit-in-place machinery.
-    crate::cmd::config::set(&cfg, &path, value, from, stdin, encrypted, yes, None)
+    crate::cmd::config::set(&cfg, &path, value, from, stdin, encrypted, yes, None, false, &crate::cmd::config::Placement::Auto)
 }
 
 #[cfg(test)]
