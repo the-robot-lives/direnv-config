@@ -6,7 +6,7 @@ domain: dirconfig.therobotlives.com
 replicas: 1
 
 # Bootstrap tag until CI's first bump-chart owns sha-<7> on main.
-image: ops.noizu.com/dirconfig.therobotlives.com/web:sha-5ddd3b8
+image: ops.noizu.com/dirconfig.therobotlives.com/web:sha-ac78051
 
 port: 8160
 imagePullSecrets:
