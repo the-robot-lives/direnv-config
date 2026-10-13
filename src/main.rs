@@ -326,6 +326,17 @@ enum Commands {
         /// Headless: unseal every sealed entry in scope
         #[arg(long)]
         decrypt_all: bool,
+        /// Selector: keep only entries whose leaf key name matches this
+        /// case-insensitive wildcard — `*` = any run of characters (incl.
+        /// none), `?` = exactly one, all else literal; the whole leaf name
+        /// (last dot-segment, e.g. `db_password` of `app.db.password`) must
+        /// match. Repeatable (OR). Applies to every mode; --except wins.
+        #[arg(long = "match", value_name = "PAT")]
+        r#match: Vec<String>,
+        /// Selector: drop entries whose leaf key name matches this wildcard
+        /// (same syntax as --match). Repeatable (OR); always wins over --match.
+        #[arg(long, value_name = "PAT")]
+        except: Vec<String>,
         /// Restrict scope to entries in this file
         #[arg(long, value_name = "FILE")]
         file: Option<String>,
@@ -568,7 +579,7 @@ fn main() -> anyhow::Result<()> {
                 force,
             })
         }
-        Commands::Seal { list, json, headless, encrypt, encrypt_all_plain, decrypt, decrypt_all, file, dry_run, yes } => {
+        Commands::Seal { list, json, headless, encrypt, encrypt_all_plain, decrypt, decrypt_all, r#match, except, file, dry_run, yes } => {
             cmd::seal::run(cmd::seal::SealArgs {
                 list,
                 json,
@@ -577,6 +588,8 @@ fn main() -> anyhow::Result<()> {
                 encrypt_all_plain,
                 decrypt,
                 decrypt_all,
+                r#match,
+                except,
                 file: file.as_deref(),
                 dry_run,
                 yes,
