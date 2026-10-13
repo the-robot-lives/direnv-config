@@ -325,19 +325,35 @@ fn print_plan(ops: &[PlanOp], dry_run: bool) {
     }
 }
 
+/// Summary of an applied (or previewed) plan, for the `--json` action mode.
+struct ApplyOutcome {
+    applied: usize,
+    dry_run: bool,
+}
+
 /// Apply a validated plan: atomic per-file writes (all-or-nothing per run —
 /// [`build_plan`] has already validated every op), then a store refresh per
 /// touched subject (the `dc config set` precedent, so `dc get` serves the
 /// sealed/unsealed value immediately).
-fn apply_plan(ops: &[PlanOp], dry_run: bool, yes: bool) -> Result<()> {
+///
+/// With `json`, the human progress lines move to stderr so stdout carries the
+/// JSON summary only.
+fn apply_plan(ops: &[PlanOp], dry_run: bool, yes: bool, json: bool) -> Result<ApplyOutcome> {
+    let human = |text: &str| {
+        if json {
+            eprintln!("{text}");
+        } else {
+            println!("{text}");
+        }
+    };
     if ops.is_empty() {
-        println!("nothing to do — no eligible entries in scope");
-        return Ok(());
+        human("nothing to do — no eligible entries in scope");
+        return Ok(ApplyOutcome { applied: 0, dry_run });
     }
     print_plan(ops, dry_run);
     if dry_run {
-        println!("dry-run: {} change(s) — nothing written", ops.len());
-        return Ok(());
+        human(&format!("dry-run: {} change(s) — nothing written", ops.len()));
+        return Ok(ApplyOutcome { applied: ops.len(), dry_run: true });
     }
     if !yes {
         bail!("nothing written — re-run with --yes to apply (or --dry-run to preview)");
@@ -360,15 +376,22 @@ fn apply_plan(ops: &[PlanOp], dry_run: bool, yes: bool) -> Result<()> {
     }
 
     // Refresh affected subjects so the store picks up the new source values.
-    // The last-touched file per subject ingests last (its keys win).
-    let mut subjects: BTreeMap<String, PathBuf> = BTreeMap::new();
+    // Every touched file is refreshed — one refresh per (subject, file) pair,
+    // in op order — so a subject spliced across several files re-ingests from
+    // each of them and the last-touched file really does ingest last (its keys
+    // win). A single file per subject would let the other files' keys serve
+    // stale store values until a manual reload.
+    let mut touched: Vec<(String, PathBuf)> = Vec::new();
     for op in ops {
-        subjects.insert(op.subject.clone(), op.file.clone());
+        let pair = (op.subject.clone(), op.file.clone());
+        if !touched.contains(&pair) {
+            touched.push(pair);
+        }
     }
-    for (subject, file) in &subjects {
+    for (subject, file) in &touched {
         crate::cmd::config::refresh_store(subject, Some(file))?;
     }
-    Ok(())
+    Ok(ApplyOutcome { applied: ops.len(), dry_run: false })
 }
 
 // ---------------------------------------------------------------------------
@@ -535,7 +558,8 @@ fn interactive(entries: &[&Entry]) -> Result<()> {
     let targets: Vec<&Entry> = sel.iter().map(|&i| entries[i]).collect();
     let key = crate::settings::key()?;
     let ops = build_plan(encrypting, false, &targets, &key)?;
-    apply_plan(&ops, false, true)
+    apply_plan(&ops, false, true, false)?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -648,7 +672,20 @@ pub fn run(args: SealArgs) -> Result<()> {
 
     let key = crate::settings::key()?;
     let ops = build_plan(encrypting, explicit, &targets, &key)?;
-    apply_plan(&ops, args.dry_run, args.yes)
+    let outcome = apply_plan(&ops, args.dry_run, args.yes, args.json)?;
+    if args.json {
+        // action-mode --json: a result summary (the --list inventory already
+        // printed above returns its own JSON shape)
+        println!(
+            "{}",
+            serde_json::json!({
+                "action": if encrypting { "encrypt" } else { "decrypt" },
+                "applied": outcome.applied,
+                "dry_run": outcome.dry_run,
+            })
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -25,30 +25,40 @@ fn write_lines(path: &Path, lines: &[String]) -> Result<()> {
 
 /// Atomic variant of [`write_lines`]: writes a sibling temp file, preserves
 /// the original's unix permissions, then renames over the target — a crash
-/// mid-write can never leave a truncated source file behind.
+/// mid-write can never leave a truncated source file behind. A failure part
+/// way through (create/write/rename) removes the sibling temp instead of
+/// leaking it next to the source.
 pub(crate) fn write_lines_atomic(path: &Path, lines: &[String]) -> Result<()> {
     use std::io::Write as _;
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     let fname = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let tmp = dir.join(format!(".{fname}.dc-tmp-{}", std::process::id()));
-    let mut body = lines.join("\n");
-    body.push('\n');
-    {
-        let mut f = std::fs::File::create(&tmp)
-            .with_context(|| format!("create temp file {}", tmp.display()))?;
-        f.write_all(body.as_bytes())?;
-        f.sync_all().ok();
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Ok(meta) = std::fs::metadata(path) {
-            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(meta.permissions().mode())).ok();
+    let attempt = || -> Result<()> {
+        let mut body = lines.join("\n");
+        body.push('\n');
+        {
+            let mut f = std::fs::File::create(&tmp)
+                .with_context(|| format!("create temp file {}", tmp.display()))?;
+            f.write_all(body.as_bytes())?;
+            f.sync_all().ok();
         }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = std::fs::metadata(path) {
+                std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(meta.permissions().mode())).ok();
+            }
+        }
+        std::fs::rename(&tmp, path)
+            .with_context(|| format!("atomically replace {}", path.display()))?;
+        Ok(())
+    };
+    let result = attempt();
+    if result.is_err() {
+        // best-effort: a failed write must not accumulate dotfile siblings
+        let _ = std::fs::remove_file(&tmp);
     }
-    std::fs::rename(&tmp, path)
-        .with_context(|| format!("atomically replace {}", path.display()))?;
-    Ok(())
+    result
 }
 
 pub(crate) fn marker(tier: u8) -> String {
@@ -877,6 +887,46 @@ mod tests {
         let (idx, line) = errata_compute(&src, "cf", "api_token", 0, &token).unwrap();
         assert_eq!(idx, 2); // the YAML terminator line index
         assert!(line.starts_with("api_token: \"🔒 🔒:v1:"));
+    }
+
+    // ---- atomic write temp hygiene ----
+
+    fn dc_tmp_leftovers(dir: &std::path::Path) -> Vec<String> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(".dc-tmp-"))
+            .collect()
+    }
+
+    #[test]
+    fn write_lines_atomic_cleans_up_temp_on_failure() {
+        let tmp = TempDir::new().unwrap();
+        // renaming over a directory fails, exercising the mid-write error path
+        let target = tmp.path().join("victim.envrc");
+        std::fs::create_dir(&target).unwrap();
+        assert!(
+            write_lines_atomic(&target, &lines("a: 1\n")).is_err(),
+            "rename over a directory must fail"
+        );
+        assert!(
+            dc_tmp_leftovers(tmp.path()).is_empty(),
+            "failed write leaked a temp sibling"
+        );
+    }
+
+    #[test]
+    fn write_lines_atomic_success_writes_and_leaves_no_temp() {
+        let tmp = TempDir::new().unwrap();
+        let target = tmp.path().join("f.envrc");
+        std::fs::write(&target, "old\n").unwrap();
+        write_lines_atomic(&target, &lines("new: 1\n")).unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "new: 1\n");
+        assert!(
+            dc_tmp_leftovers(tmp.path()).is_empty(),
+            "successful write leaked a temp sibling"
+        );
     }
 
     // ---- external-file routing (dc load provenance) ----

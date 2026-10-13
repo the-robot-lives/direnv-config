@@ -59,7 +59,10 @@ dc encrypt / decrypt      # secret material
 dc secrets                # list every in-scope key name (.envrc* heredocs + dc-loaded files + store layers)
                           # (--sources annotates each key with its file:line / store:<subject>/<layer> origins)
 dc seal                   # interactive seal/unseal selector over project-scope sources (never touches store files)
-                          # (--list inventory; --headless --encrypt/--decrypt KEY… [--dry-run] [--yes]; ⛔ shadow keys are never modified)
+                          # (--list inventory; --headless --encrypt/--decrypt KEY… [--dry-run] [--yes];
+                          #  decrypt restores `🔒 <value>` plaintext-at-rest for bare originals;
+                          #  multi-line block-scalar values collapse to one quoted line on rewrite (known limitation);
+                          #  ⛔ shadow keys are never modified)
 dc emit                   # store -> loadable YAML (inverse of `dc load`): 🔒 tokens byte-identical, plain values plain
                           # (--output secrets.dc.yaml; layer variants gain .<layer>.yaml with _dc_layer routing;
                           #  _dc/auto get their own files + printed dc load --replace/--if-missing invocations;

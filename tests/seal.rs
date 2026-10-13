@@ -507,3 +507,153 @@ fn secrets_lists_merged_scope_with_sources_and_no_values() {
     assert!(sources.contains(&"store:app/secrets"), "{sources:?}");
     assert_no_values(&serde_json::to_string(&arr).unwrap());
 }
+
+#[test]
+fn seal_refresh_reflects_every_touched_file() {
+    // W2 regression: `app` is split across two files (.envrc heredoc + the
+    // registered external team.yaml). Sealing one key per file in one run must
+    // refresh from BOTH files — a refresh fed by only one of them would leave
+    // the other file's keys serving their pre-seal (stale) store values.
+    let (proj, tmp) = Proj::new("refreshsplit");
+
+    // pre-state sanity: the store-backed external key resolves to its
+    // plaintext (heredoc keys only enter the store at refresh time)
+    let out = proj.run(&tmp, &["get", "app", "db_password", "--reveal"], None);
+    proj.assert_success(&out, "pre-state get");
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "dbsec");
+
+    // one run, one key per file
+    let out = proj.run(
+        &tmp,
+        &["seal", "--headless", "--encrypt", "app.api_key", "app.db_password", "--yes"],
+        None,
+    );
+    proj.assert_success(&out, "seal across both files");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("app.api_key"), "{stderr}");
+    assert!(stderr.contains("app.db_password"), "{stderr}");
+
+    // both files now hold tokens on disk
+    let envrc = std::fs::read_to_string(proj.envrc()).unwrap();
+    let team = std::fs::read_to_string(proj.dir.join("team.yaml")).unwrap();
+    assert!(!envrc.contains("presecret"), "{envrc}");
+    assert!(!team.contains("dbsec"), "{team}");
+
+    // no staleness: the store serves the NEW state for BOTH files — the stale
+    // plaintext values are gone from resolution, and --reveal still round-trips
+    for (subject, path, want) in [("app", "api_key", "presecret"), ("app", "db_password", "dbsec")] {
+        let out = proj.run(&tmp, &["get", subject, path], None);
+        proj.assert_success(&out, path);
+        let served = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            !served.contains(want),
+            "store served the stale pre-seal value for {subject}.{path}: {served}"
+        );
+        let out = proj.run(&tmp, &["get", subject, path, "--reveal"], None);
+        proj.assert_success(&out, path);
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout).trim(),
+            want,
+            "{subject}.{path} must still decrypt after the multi-file seal"
+        );
+    }
+
+    // sealing a key in only ONE file must not disturb the other file's keys
+    let out = proj.run(
+        &tmp,
+        &["seal", "--headless", "--decrypt", "app.api_key", "--yes"],
+        None,
+    );
+    proj.assert_success(&out, "single-file decrypt");
+    let out = proj.run(&tmp, &["get", "app", "db_password", "--reveal"], None);
+    proj.assert_success(&out, "other file untouched");
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "dbsec");
+}
+
+#[test]
+fn seal_conflicting_action_flags_die_at_the_parser() {
+    // N1: clap-level mutual exclusion — contradictory combos never reach
+    // cmd::seal's runtime check.
+    let (proj, tmp) = Proj::new("parserx");
+    for args in [
+        vec!["seal", "--encrypt", "app.api_key", "--decrypt", "app.api_key"],
+        vec!["seal", "--encrypt", "app.api_key", "--decrypt-all"],
+        vec!["seal", "--encrypt-all-plain", "--decrypt-all"],
+        vec!["seal", "--encrypt", "app.api_key", "--encrypt-all-plain"],
+        vec!["seal", "--decrypt", "app.api_key", "--decrypt-all"],
+    ] {
+        let out = proj.run(&tmp, &args, None);
+        assert!(!out.status.success(), "parser must reject {args:?}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("cannot be used with") || stderr.contains("conflict"),
+            "expected a clap usage error for {args:?}:\n{stderr}"
+        );
+    }
+}
+
+#[test]
+fn seal_json_action_mode_prints_a_result_summary() {
+    // N2: --json is honored in action mode — stdout is pure JSON, with the
+    // human progress lines moved to stderr.
+    let (proj, tmp) = Proj::new("jsonact");
+
+    // dry-run + json: preview summary, nothing written
+    let before = std::fs::read(proj.envrc()).unwrap();
+    let out = proj.run(
+        &tmp,
+        &["seal", "--headless", "--encrypt", "app.api_key", "--dry-run", "--json"],
+        None,
+    );
+    proj.assert_success(&out, "seal --json dry-run");
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["action"], "encrypt");
+    assert_eq!(json["applied"], 1);
+    assert_eq!(json["dry_run"], true);
+    assert_eq!(std::fs::read(proj.envrc()).unwrap(), before, "dry-run must not write");
+
+    // real apply + json
+    let out = proj.run(
+        &tmp,
+        &["seal", "--headless", "--encrypt", "app.api_key", "--yes", "--json"],
+        None,
+    );
+    proj.assert_success(&out, "seal --json apply");
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["applied"], 1);
+    assert_eq!(json["dry_run"], false);
+    // no plaintext may leak around the JSON summary (either stream)
+    for stream in [
+        String::from_utf8_lossy(&out.stdout).to_string(),
+        String::from_utf8_lossy(&out.stderr).to_string(),
+    ] {
+        assert!(!stream.contains("presecret"), "plaintext leaked: {stream}");
+    }
+
+    // decrypt direction reports its own action
+    let out = proj.run(
+        &tmp,
+        &["seal", "--headless", "--decrypt", "app.api_key", "--yes", "--json"],
+        None,
+    );
+    proj.assert_success(&out, "seal --json decrypt");
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["action"], "decrypt");
+    assert_eq!(json["applied"], 1);
+
+    // nothing eligible: the "nothing to do" line moves to stderr so stdout
+    // stays parseable (applied: 0)
+    let out = proj.run(
+        &tmp,
+        &["seal", "--headless", "--encrypt", "app.vault", "--yes", "--json"],
+        None,
+    );
+    proj.assert_success(&out, "seal --json nothing-to-do");
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["applied"], 0);
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("nothing to do"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}

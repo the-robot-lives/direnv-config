@@ -191,11 +191,6 @@ pub fn run(args: EmitArgs) -> Result<()> {
         seen.push(p.path.clone());
     }
 
-    // --- safety gate --------------------------------------------------------
-    for p in &plans {
-        ensure_safe_output(&p.path, args.force)?;
-    }
-
     // --- report -------------------------------------------------------------
     let cwd = std::env::current_dir()?;
     println!("emit: {} subject(s) from {}", wanted.len(), store.display());
@@ -205,9 +200,17 @@ pub fn run(args: EmitArgs) -> Result<()> {
     for p in &plans {
         println!("  → {}", abs(&cwd, &p.path).display());
     }
+
+    // dry-run previews the plan and writes nothing, so it returns before the
+    // safety gate: a preview of a not-yet-ignored path must not demand --force.
     if args.dry_run {
         println!("dry-run: {} file(s) — nothing written", plans.len());
         return Ok(());
+    }
+
+    // --- safety gate --------------------------------------------------------
+    for p in &plans {
+        ensure_safe_output(&p.path, args.force)?;
     }
 
     for p in &plans {
@@ -423,6 +426,32 @@ fn git(cwd: &Path, args: &[&str]) -> Result<std::process::Output> {
         .map_err(|e| anyhow::anyhow!("failed to run git: {e}"))
 }
 
+/// Resolve an output path to `(repo toplevel, toplevel-relative pathspec)` so
+/// `git ls-files` / `git check-ignore` see the same form for relative and
+/// absolute outputs (and for `..`-bearing ones, via canonicalization).
+/// `None` = not a git work tree; the caller's check-ignore step reports that.
+fn repo_relative(cwd: &Path, abs_path: &Path) -> Option<(PathBuf, String)> {
+    let out = git(cwd, &["rev-parse", "--show-toplevel"]).ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let top = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+    // macOS $TMPDIR-style symlink prefixes (/var → /private/var): resolve both
+    // sides before comparing, falling back to the raw forms.
+    let top_res = std::fs::canonicalize(&top).unwrap_or_else(|_| top.clone());
+    let parent = abs_path.parent().unwrap_or_else(|| Path::new("."));
+    let parent_res = std::fs::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf());
+    let resolved = match abs_path.file_name() {
+        Some(name) => parent_res.join(name),
+        None => parent_res,
+    };
+    let rel = resolved
+        .strip_prefix(&top_res)
+        .or_else(|_| resolved.strip_prefix(&top))
+        .ok()?;
+    Some((top_res, rel.to_string_lossy().into_owned()))
+}
+
 /// Refuse (unless `--force`) any output path that could be committed: tracked
 /// by git, or not covered by `.gitignore`. Plaintext secret values must never
 /// land in a committable file silently.
@@ -433,8 +462,21 @@ fn ensure_safe_output(path: &Path, force: bool) -> Result<()> {
     let cwd = std::env::current_dir()?;
     let display = path.display().to_string();
 
+    // git pathspecs are cwd-relative: hand git a toplevel-relative form (run
+    // from the toplevel) so absolute outputs and `..` components hit the same
+    // gate as repo-relative ones.
+    let abs_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    };
+    let (git_cwd, target) = match repo_relative(&cwd, &abs_path) {
+        Some((top, rel)) => (top, rel),
+        None => (cwd.clone(), abs_path.display().to_string()),
+    };
+
     // tracked files are committable even when gitignored
-    let ls = git(&cwd, &["ls-files", "--", &display])?;
+    let ls = git(&git_cwd, &["ls-files", "--", &target])?;
     if !ls.status.success() {
         bail!(
             "cannot verify git coverage for {display} (git ls-files failed: {})",
@@ -448,7 +490,7 @@ fn ensure_safe_output(path: &Path, force: bool) -> Result<()> {
         );
     }
 
-    let check = git(&cwd, &["check-ignore", "-q", "--", &display])?;
+    let check = git(&git_cwd, &["check-ignore", "-q", "--", &target])?;
     match check.status.code() {
         Some(0) => Ok(()), // ignored → safe
         Some(1) => bail!(

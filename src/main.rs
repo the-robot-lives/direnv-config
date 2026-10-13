@@ -14,7 +14,7 @@ mod store;
 mod target;
 mod yaml;
 
-use clap::{Parser, Subcommand};
+use clap::{ArgGroup, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "dc", version, about = "YAML-backed configuration layer for direnv")]
@@ -291,6 +291,19 @@ enum Commands {
     },
     /// Encryption inventory + in-place (un)seal over project-scope sources.
     /// Interactive when stdin is a tty; store layer files are never rewritten.
+    // Parser-level mutual exclusion: the four action flags are two groups
+    // (encrypt / decrypt) that conflict with each other, so contradictory
+    // combinations die at the parser with usage help (the cmd::seal check
+    // stays as a runtime guard for direct construction).
+    #[command(group(
+        ArgGroup::new("seal_encrypt_action")
+            .args(["encrypt", "encrypt_all_plain"])
+            .conflicts_with("seal_decrypt_action")
+    ))]
+    #[command(group(
+        ArgGroup::new("seal_decrypt_action")
+            .args(["decrypt", "decrypt_all"])
+    ))]
     Seal {
         /// Print the inventory (key | file:line | state) and exit
         #[arg(long)]
