@@ -382,9 +382,13 @@ fn apply_plan(ops: &[PlanOp], dry_run: bool, yes: bool, json: bool) -> Result<Ap
     // win). A single file per subject would let the other files' keys serve
     // stale store values until a manual reload.
     let mut touched: Vec<(String, PathBuf)> = Vec::new();
+    // Membership via BTreeSet keeps the dedup O(n log n) (Vec::contains was
+    // O(n^2)); the Vec side preserves the op-order iteration the refresh
+    // contract below depends on.
+    let mut seen: BTreeSet<(String, PathBuf)> = BTreeSet::new();
     for op in ops {
         let pair = (op.subject.clone(), op.file.clone());
-        if !touched.contains(&pair) {
+        if seen.insert(pair.clone()) {
             touched.push(pair);
         }
     }

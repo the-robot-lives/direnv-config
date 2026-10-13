@@ -423,6 +423,55 @@ fn emit_refuses_committable_targets_unless_forced() {
 }
 
 #[test]
+fn emit_accepts_gitignored_output_in_uncreated_nested_dir() {
+    // F1 regression (#29 follow-up): `repo_relative` canonicalized only the
+    // output's PARENT directory, so a not-yet-created nested target fell
+    // through to the raw absolute pathspec and git hard-errored ("outside
+    // repository") when the path was spelled through a symlinked prefix
+    // (macOS /var → /private/var $TMPDIR) — re-introducing the W1 hard-error
+    // for a perfectly valid gitignored target. The gate must canonicalize the
+    // nearest existing ancestor and resolve the remainder lexically, and the
+    // write must create the missing parents (no --force anywhere here).
+    let (fx, a) = Fixture::new("emit-nest-a");
+    fx.seed_source_store(&a);
+
+    // The fixture's `.gitignore` entry (`secrets.dc.*`, no slash) covers the
+    // name at any depth; the directory itself is deliberately NOT created.
+    let nested = a.join("nested").join("deep");
+    assert!(!nested.exists(), "precondition: parent dirs must not exist");
+
+    // Relative form, parents missing: gate passes and the write creates them.
+    let out = fx.run_in(&a, &["emit", "--output", "nested/deep/secrets.dc.yaml"], None);
+    assert!(
+        out.status.success(),
+        "gitignored output in an uncreated nested dir must pass without --force:\n\
+         stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let main = std::fs::read_to_string(nested.join("secrets.dc.yaml")).unwrap();
+    assert!(main.contains("region: us-east-1"), "{main}");
+
+    // Absolute form spelled through the RAW tmpdir prefix (/var/... where the
+    // repo toplevel canonicalizes to /private/var/...): the pre-fix strip
+    // missed and handed git an absolute pathspec.
+    std::fs::remove_dir_all(a.join("nested")).unwrap();
+    assert!(!nested.exists(), "precondition: nested tree removed again");
+    let raw_proj = fx.root.path().join("emit-nest-a");
+    let raw_target = raw_proj.join("nested").join("deep").join("secrets.dc.yaml");
+    assert!(raw_proj.exists(), "raw-spelled project path must be the same dir");
+    let out = fx.run_in(&a, &["emit", "--output", raw_target.to_str().unwrap()], None);
+    assert!(
+        out.status.success(),
+        "raw-prefixed absolute gitignored output must pass without --force:\n\
+         stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    assert!(raw_target.exists(), "raw-prefixed output must be written");
+}
+
+#[test]
 fn emit_subject_filter_and_layer_only_outputs() {
     let (fx, a) = Fixture::new("emit-filter-a");
     fx.seed_source_store(&a);
