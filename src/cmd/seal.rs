@@ -74,6 +74,13 @@ impl Entry {
     pub fn key(&self) -> String {
         format!("{}.{}", self.subject, self.path)
     }
+
+    /// Leaf key name: the last dot-segment of the path (`app.db.password` →
+    /// `password`; a dot-free path is its own leaf). The unit that
+    /// `--match`/`--except` patterns test — never the subject or full path.
+    pub fn leaf_name(&self) -> &str {
+        self.path.rsplit('.').next().unwrap_or(&self.path)
+    }
 }
 
 /// One scanned in-scope file with its indexed entries (entry.file names the
@@ -402,6 +409,58 @@ fn apply_plan(ops: &[PlanOp], dry_run: bool, yes: bool, json: bool) -> Result<Ap
 // Selection (headless + interactive share it)
 // ---------------------------------------------------------------------------
 
+/// Case-insensitive, anchored wildcard match — the `--match`/`--except`
+/// syntax, std-only by design (the contract is glob-style, not regex).
+/// `*` matches any run of characters (including none); `?` matches exactly
+/// one character; every other character matches literally; the whole name
+/// must match (patterns are anchored at both ends). Iterative with a single
+/// star-backtrack point — O(p·n) worst case, no regex dependency.
+pub fn wildcard_matches(pattern: &str, name: &str) -> bool {
+    let p: Vec<char> = pattern.to_lowercase().chars().collect();
+    let n: Vec<char> = name.to_lowercase().chars().collect();
+    let (mut pi, mut ni) = (0usize, 0usize);
+    let (mut star, mut mark) = (usize::MAX, 0usize);
+    while ni < n.len() {
+        if pi < p.len() && (p[pi] == '?' || p[pi] == n[ni]) {
+            pi += 1;
+            ni += 1;
+        } else if pi < p.len() && p[pi] == '*' {
+            star = pi;
+            mark = ni;
+            pi += 1;
+        } else if star != usize::MAX {
+            pi = star + 1;
+            mark += 1;
+            ni = mark;
+        } else {
+            return false;
+        }
+    }
+    while pi < p.len() && p[pi] == '*' {
+        pi += 1;
+    }
+    pi == p.len()
+}
+
+/// Selector filter over candidate entries: test each entry's
+/// [`Entry::leaf_name`] (never the full path). `keep` patterns are OR'd —
+/// when any are given, an entry must match at least one; `except` patterns
+/// then remove matches, always winning over `keep`.
+pub fn select_by_patterns<'a>(
+    entries: Vec<&'a Entry>,
+    keep: &[String],
+    except: &[String],
+) -> Vec<&'a Entry> {
+    entries
+        .into_iter()
+        .filter(|e| {
+            let leaf = e.leaf_name();
+            (keep.is_empty() || keep.iter().any(|p| wildcard_matches(p, leaf)))
+                && !except.iter().any(|p| wildcard_matches(p, leaf))
+        })
+        .collect()
+}
+
 /// Resolve explicit `subject.path` keys to inventory entries, erroring on
 /// unknown keys (scripts must learn, not silently no-op).
 fn resolve_targets<'a>(entries: &[&'a Entry], keys: &[String]) -> Result<Vec<&'a Entry>> {
@@ -579,10 +638,19 @@ pub struct SealArgs<'a> {
     pub encrypt_all_plain: bool,
     pub decrypt: Vec<String>,
     pub decrypt_all: bool,
+    /// `--match <PAT>` selectors (leaf key name, case-insensitive wildcards).
+    pub r#match: Vec<String>,
+    /// `--except <PAT>` selectors — always win over [`SealArgs::r#match`].
+    pub except: Vec<String>,
     pub file: Option<&'a str>,
     pub dry_run: bool,
     pub yes: bool,
 }
+
+/// Empty-selection guard: selectors that match nothing must exit non-zero —
+/// a silent "nothing to do" success would read as policy applied when it
+/// selected nothing (false green).
+const ZERO_SELECTED: &str = "0 keys selected — check your patterns (--match/--except test the leaf key name, case-insensitive; `*` any run incl. none, `?` exactly one char; anchored whole-name)";
 
 // <REMOVED UUID HERE> run :: auto-generated pointer for public function run
 pub fn run(args: SealArgs) -> Result<()> {
@@ -595,6 +663,7 @@ pub fn run(args: SealArgs) -> Result<()> {
         .into_iter()
         .filter(|e| forced.as_ref().is_none_or(|t| same_path(&e.file, t)))
         .collect();
+    let selectors_given = !args.r#match.is_empty() || !args.except.is_empty();
 
     // Inventory/list mode.
     if args.list {
@@ -607,12 +676,17 @@ pub fn run(args: SealArgs) -> Result<()> {
                 "choose either --list (inventory only) or an --encrypt/--decrypt action, not both"
             );
         }
+        let listed = if selectors_given {
+            select_by_patterns(entries, &args.r#match, &args.except)
+        } else {
+            entries
+        };
         if args.json {
-            print_json(&entries)?;
-        } else if entries.is_empty() {
+            print_json(&listed)?;
+        } else if listed.is_empty() {
             println!("no sealable keys in scope");
         } else {
-            print_table(&entries);
+            print_table(&listed);
         }
         return Ok(());
     }
@@ -640,7 +714,18 @@ pub fn run(args: SealArgs) -> Result<()> {
                 chosen.join(", ")
             );
         }
-        return interactive(&entries);
+        // Selectors pre-filter the list the TUI shows; an empty pre-filter is
+        // refused up front rather than rendering a blank selector.
+        let shown = if selectors_given {
+            let filtered = select_by_patterns(entries, &args.r#match, &args.except);
+            if filtered.is_empty() {
+                bail!("{ZERO_SELECTED}");
+            }
+            filtered
+        } else {
+            entries
+        };
+        return interactive(&shown);
     }
 
     // Headless.
@@ -673,19 +758,34 @@ pub fn run(args: SealArgs) -> Result<()> {
             })
             .collect()
     };
+    // Selector pass: narrow the mode's base candidate set by leaf key name.
+    // Applied identically to explicit and bulk selections; an empty result is
+    // a hard error (never a silent success).
+    let targets = if selectors_given {
+        let filtered = select_by_patterns(targets, &args.r#match, &args.except);
+        if filtered.is_empty() {
+            bail!("{ZERO_SELECTED}");
+        }
+        filtered
+    } else {
+        targets
+    };
 
     let key = crate::settings::key()?;
     let ops = build_plan(encrypting, explicit, &targets, &key)?;
     let outcome = apply_plan(&ops, args.dry_run, args.yes, args.json)?;
     if args.json {
         // action-mode --json: a result summary (the --list inventory already
-        // printed above returns its own JSON shape)
+        // printed above returns its own JSON shape). `selected`/`selected_keys`
+        // name the post-selector candidate set — key names only, never values.
         println!(
             "{}",
             serde_json::json!({
                 "action": if encrypting { "encrypt" } else { "decrypt" },
                 "applied": outcome.applied,
                 "dry_run": outcome.dry_run,
+                "selected": targets.len(),
+                "selected_keys": targets.iter().map(|e| e.key()).collect::<Vec<_>>(),
             })
         );
     }
@@ -917,5 +1017,81 @@ mod tests {
             err.contains("nope.missing") && err.contains("--list"),
             "{err}"
         );
+    }
+
+    // ---- wildcard selector matching ----
+
+    #[test]
+    fn wildcard_matches_is_anchored_case_insensitive_and_star_question() {
+        // `*` = any run incl. none; anchored both ends
+        assert!(wildcard_matches("*_ID", "user_id"));
+        assert!(wildcard_matches("*PASSWORD*", "db_password"));
+        assert!(wildcard_matches("*EMAIL*", "email"));
+        assert!(wildcard_matches("host", "host"));
+        assert!(wildcard_matches("h*t", "host"));
+        assert!(wildcard_matches("h*t", "ht"));
+        assert!(wildcard_matches("*", "anything"));
+        // `?` = exactly one char
+        assert!(wildcard_matches("h?st", "host"));
+        assert!(!wildcard_matches("h?st", "hostt"));
+        assert!(!wildcard_matches("h?st", "hst"));
+        // anchoring: no implicit substring
+        assert!(!wildcard_matches("id", "user_id"));
+        assert!(!wildcard_matches("user", "user_id"));
+        // case-insensitive, both directions
+        assert!(wildcard_matches("*_id", "USER_ID"));
+        assert!(wildcard_matches("*PASSWORD*", "Db_PaSsWoRd"));
+        // literal-only patterns match literally
+        assert!(wildcard_matches("db_password", "DB_PASSWORD"));
+        assert!(!wildcard_matches("password", "db_password"));
+    }
+
+    #[test]
+    fn select_by_patterns_match_except_and_except_wins() {
+        let tmp = TempDir::new().unwrap();
+        let f = write_tmp(
+            &tmp,
+            ".envrc",
+            "dc_yaml --no-bump app <<'YAML'\nhost: h\napi_key: k\nsecret: s\nYAML\n",
+        );
+        let scan = scan_file(&f, false).unwrap();
+        let all = sorted_entries(std::slice::from_ref(&scan));
+        let leaves = |v: Vec<&Entry>| {
+            let mut l: Vec<String> = v.iter().map(|e| e.leaf_name().to_string()).collect();
+            l.sort();
+            l
+        };
+
+        // match-only: OR over patterns, leaf names only
+        assert_eq!(
+            leaves(select_by_patterns(
+                all.clone(),
+                &["*KEY*".to_string()],
+                &[],
+            )),
+            vec!["api_key"]
+        );
+        // except-only: base minus matches
+        assert_eq!(
+            leaves(select_by_patterns(
+                all.clone(),
+                &[],
+                &["*_key".to_string()],
+            )),
+            vec!["host", "secret"]
+        );
+        // both: --except wins even inside --match's hit set
+        assert_eq!(
+            leaves(select_by_patterns(
+                all.clone(),
+                &["*".to_string()],
+                &["*key*".to_string()],
+            )),
+            vec!["host", "secret"]
+        );
+        // full path is NOT the test unit: `app.*` selects nothing (leaf is `host` etc.)
+        assert!(select_by_patterns(all.clone(), &["app.*".to_string()], &[]).is_empty());
+        // leaf_name derivation
+        assert_eq!(all[0].leaf_name(), "api_key");
     }
 }

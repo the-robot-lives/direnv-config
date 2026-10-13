@@ -592,6 +592,345 @@ fn seal_conflicting_action_flags_die_at_the_parser() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// --match / --except selectors (leaf key name, case-insensitive wildcards)
+// ---------------------------------------------------------------------------
+
+fn vault_line(text: &str) -> String {
+    text.lines()
+        .find(|l| l.contains("vault"))
+        .unwrap_or_else(|| panic!("no vault line in:\n{text}"))
+        .to_string()
+}
+
+#[test]
+fn seal_match_selects_only_matching_leaf_names_case_insensitively() {
+    let (proj, tmp) = Proj::new("matchonly");
+    let envrc_before = std::fs::read_to_string(proj.envrc()).unwrap();
+    let out = proj.run(
+        &tmp,
+        &[
+            "seal",
+            "--headless",
+            "--encrypt-all-plain",
+            "--match",
+            "*PASSWORD*",
+            "--yes",
+        ],
+        None,
+    );
+    proj.assert_success(&out, "seal --match *PASSWORD* (uppercase pattern)");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("app.db_password"), "{stderr}");
+    assert!(
+        !stderr.contains("app.api_key") && !stderr.contains("app.host"),
+        "match must exclude non-matching keys:\n{stderr}"
+    );
+
+    // only the external team.yaml key sealed
+    let team = std::fs::read_to_string(proj.dir.join("team.yaml")).unwrap();
+    assert!(!team.contains("dbsec"), "matched key must seal:\n{team}");
+    // everything else byte-identical (plain base preserved, vault untouched)
+    assert_eq!(
+        std::fs::read_to_string(proj.envrc()).unwrap(),
+        envrc_before,
+        "unmatched .envrc keys must be untouched"
+    );
+    let out = proj.run(&tmp, &["get", "app", "db_password", "--reveal"], None);
+    proj.assert_success(&out, "get --reveal after selective seal");
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "dbsec");
+}
+
+#[test]
+fn seal_except_excludes_matching_keys_from_the_base_set() {
+    let (proj, tmp) = Proj::new("exceptonly");
+    let out = proj.run(
+        &tmp,
+        &[
+            "seal",
+            "--headless",
+            "--encrypt-all-plain",
+            "--except",
+            "*_KEY",
+            "--except",
+            "host",
+            "--yes",
+        ],
+        None,
+    );
+    proj.assert_success(&out, "seal --except");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("app.db_password"), "{stderr}");
+    assert!(
+        !stderr.contains("app.api_key"),
+        "--except *_KEY must drop api_key:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("app.host"),
+        "--except host must drop host:\n{stderr}"
+    );
+
+    let envrc = std::fs::read_to_string(proj.envrc()).unwrap();
+    assert!(envrc.contains("presecret"), "excepted key stays plain:\n{envrc}");
+    assert!(
+        envrc.contains("host: localhost"),
+        "excepted bare key stays plain:\n{envrc}"
+    );
+    let team = std::fs::read_to_string(proj.dir.join("team.yaml")).unwrap();
+    assert!(!team.contains("dbsec"), "{team}");
+}
+
+#[test]
+fn seal_except_wins_over_match_and_preserves_presealed_keys() {
+    let (proj, tmp) = Proj::new("bothsel");
+    let envrc_before = std::fs::read_to_string(proj.envrc()).unwrap();
+    let out = proj.run(
+        &tmp,
+        &[
+            "seal",
+            "--headless",
+            "--encrypt-all-plain",
+            "--match",
+            "*",
+            "--except",
+            "*key*",
+            "--yes",
+        ],
+        None,
+    );
+    proj.assert_success(&out, "seal --match * --except *key*");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("app.api_key"),
+        "--except must win over --match:\n{stderr}"
+    );
+    assert!(stderr.contains("app.host"), "{stderr}");
+    assert!(stderr.contains("app.db_password"), "{stderr}");
+
+    let envrc = std::fs::read_to_string(proj.envrc()).unwrap();
+    assert!(
+        envrc.contains("presecret"),
+        "excepted api_key must stay plain:\n{envrc}"
+    );
+    assert!(
+        envrc.contains("host: \"🔒 🔒:v1:t0:"),
+        "matched host must seal:\n{envrc}"
+    );
+    // pre-encrypted keys are never touched by --encrypt, even with --match *
+    assert_eq!(
+        vault_line(&envrc),
+        vault_line(&envrc_before),
+        "sealed vault line byte-identical"
+    );
+}
+
+#[test]
+fn seal_zero_match_exits_non_zero_and_writes_nothing() {
+    let (proj, tmp) = Proj::new("zeromatch");
+    let envrc_before = std::fs::read(proj.envrc()).unwrap();
+    let team_before = std::fs::read(proj.dir.join("team.yaml")).unwrap();
+    let out = proj.run(
+        &tmp,
+        &[
+            "seal",
+            "--headless",
+            "--encrypt-all-plain",
+            "--match",
+            "*nonexistent*",
+            "--yes",
+        ],
+        None,
+    );
+    assert!(
+        !out.status.success(),
+        "zero-match selection must fail loudly (false-green guard):\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("0 keys selected"), "{stderr}");
+    assert_eq!(std::fs::read(proj.envrc()).unwrap(), envrc_before);
+    assert_eq!(std::fs::read(proj.dir.join("team.yaml")).unwrap(), team_before);
+}
+
+#[test]
+fn seal_patterns_test_the_leaf_name_not_the_full_path() {
+    let (proj, tmp) = Proj::new("leaflen");
+    let out = proj.run(
+        &tmp,
+        &[
+            "seal",
+            "--headless",
+            "--encrypt-all-plain",
+            "--match",
+            "app.*",
+            "--yes",
+        ],
+        None,
+    );
+    assert!(
+        !out.status.success(),
+        "`app.*` must select nothing — patterns test the leaf name only"
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("0 keys selected"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn seal_selectors_compose_with_explicit_encrypt_lists() {
+    let (proj, tmp) = Proj::new("explicit");
+    let out = proj.run(
+        &tmp,
+        &[
+            "seal",
+            "--headless",
+            "--encrypt",
+            "app.api_key",
+            "app.db_password",
+            "--match",
+            "*password*",
+            "--yes",
+        ],
+        None,
+    );
+    proj.assert_success(&out, "explicit list narrowed by --match");
+    let envrc = std::fs::read_to_string(proj.envrc()).unwrap();
+    assert!(envrc.contains("presecret"), "filtered-out explicit key stays plain");
+    let team = std::fs::read_to_string(proj.dir.join("team.yaml")).unwrap();
+    assert!(!team.contains("dbsec"), "{team}");
+}
+
+#[test]
+fn seal_dry_run_previews_exactly_the_selector_applied_set() {
+    let (proj, tmp) = Proj::new("seldry");
+    let envrc_before = std::fs::read(proj.envrc()).unwrap();
+    let team_before = std::fs::read(proj.dir.join("team.yaml")).unwrap();
+    let out = proj.run(
+        &tmp,
+        &[
+            "seal",
+            "--headless",
+            "--encrypt-all-plain",
+            "--match",
+            "*password*",
+            "--dry-run",
+        ],
+        None,
+    );
+    proj.assert_success(&out, "selector dry-run");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let team_path = proj.dir.join("team.yaml").display().to_string();
+    assert!(
+        stderr.lines().any(|l| l
+            == format!(
+                "would seal app.db_password at {team_path}:2 (plain → 🔒 t1)"
+            )),
+        "stderr:\n{stderr}"
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("dry-run: 1 change(s) — nothing written"),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(std::fs::read(proj.envrc()).unwrap(), envrc_before);
+    assert_eq!(std::fs::read(proj.dir.join("team.yaml")).unwrap(), team_before);
+}
+
+#[test]
+fn seal_json_action_summary_carries_selected_names_and_count() {
+    let (proj, tmp) = Proj::new("seljson");
+    let out = proj.run(
+        &tmp,
+        &[
+            "seal",
+            "--headless",
+            "--encrypt-all-plain",
+            "--match",
+            "*password*",
+            "--dry-run",
+            "--json",
+        ],
+        None,
+    );
+    proj.assert_success(&out, "selector --json dry-run");
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["action"], "encrypt");
+    assert_eq!(json["selected"], 1);
+    assert_eq!(
+        json["selected_keys"],
+        serde_json::json!(["app.db_password"]),
+        "{json}"
+    );
+    assert_eq!(json["applied"], 1);
+    assert_eq!(json["dry_run"], true);
+    assert_no_values(&serde_json::to_string(&json).unwrap());
+    assert_no_values(&String::from_utf8_lossy(&out.stderr));
+}
+
+#[test]
+fn seal_selectors_narrow_the_inventory_list() {
+    let (proj, tmp) = Proj::new("sellist");
+    let out = proj.run(
+        &tmp,
+        &["seal", "--list", "--match", "*password*", "--json"],
+        None,
+    );
+    proj.assert_success(&out, "seal --list --match --json");
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let arr = json.as_array().unwrap();
+    assert_eq!(arr.len(), 1, "{json}");
+    assert_eq!(arr[0]["key"], "app.db_password");
+
+    // except filters the inventory too
+    let out = proj.run(
+        &tmp,
+        &["seal", "--list", "--except", "*", "--json"],
+        None,
+    );
+    proj.assert_success(&out, "seal --list --except * --json");
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json.as_array().unwrap().len(), 0, "{json}");
+}
+
+#[test]
+fn seal_selectors_work_on_the_decrypt_direction() {
+    let (proj, tmp) = Proj::new("seldecrypt");
+    let out = proj.run(
+        &tmp,
+        &["seal", "--headless", "--encrypt", "app.api_key", "--yes"],
+        None,
+    );
+    proj.assert_success(&out, "pre-seal api_key");
+    let out = proj.run(
+        &tmp,
+        &[
+            "seal",
+            "--headless",
+            "--decrypt-all",
+            "--match",
+            "*KEY*",
+            "--yes",
+        ],
+        None,
+    );
+    proj.assert_success(&out, "decrypt-all narrowed by --match");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("app.api_key"), "{stderr}");
+    assert!(
+        !stderr.contains("app.vault"),
+        "vault is sealed but must not match *KEY*:\n{stderr}"
+    );
+    let envrc = std::fs::read_to_string(proj.envrc()).unwrap();
+    assert!(envrc.contains("presecret"), "api_key restored:\n{envrc}");
+    assert!(
+        envrc.contains("🔒:v1:t1:"),
+        "vault must stay sealed:\n{envrc}"
+    );
+}
+
 #[test]
 fn seal_json_action_mode_prints_a_result_summary() {
     // N2: --json is honored in action mode — stdout is pure JSON, with the
