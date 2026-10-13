@@ -207,6 +207,33 @@ mod tests {
     }
 
     #[test]
+    fn bare_seal_token_loads_verbatim_without_double_wrap() {
+        let tmp = TempDir::new().unwrap();
+        let store = tmp.path();
+        let bare = crate::crypto::encode_token("shh-bare", 1, &KEY).unwrap();
+        let marked = crate::crypto::encode_token("shh-marked", 2, &KEY).unwrap();
+        ingest(
+            store,
+            "cf",
+            "base",
+            &format!("bare_token: \"{bare}\"\nmarked_token: \"🔒 {marked}\""),
+        );
+        let secrets = read(store, "cf", "secrets");
+        // The bare `🔒:v1:...` token (no space after the padlock) must be
+        // recognized as already-encrypted and stored verbatim — never
+        // re-encrypted into an unresolvable double wrap.
+        assert_eq!(
+            crate::yaml::path::get_path(&secrets, "bare_token").unwrap(),
+            Value::String(bare)
+        );
+        // The safe marked form `🔒 <token>` keeps storing the token verbatim.
+        assert_eq!(
+            crate::yaml::path::get_path(&secrets, "marked_token").unwrap(),
+            Value::String(marked)
+        );
+    }
+
+    #[test]
     fn layer_secrets_with_padlock_both_target_secrets_file() {
         let tmp = TempDir::new().unwrap();
         let store = tmp.path();
