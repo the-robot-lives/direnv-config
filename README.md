@@ -56,7 +56,14 @@ dc set / unset / bump     # mutate values / version counter
 dc list / status / env    # configs, merge state, resolved env
 dc gen / gen-secrets      # generate values
 dc encrypt / decrypt      # secret material
-dc secrets                # list secret key names per config
+dc secrets                # list every in-scope key name (.envrc* heredocs + dc-loaded files + store layers)
+                          # (--sources annotates each key with its file:line / store:<subject>/<layer> origins)
+dc seal                   # interactive seal/unseal selector over project-scope sources (never touches store files)
+                          # (--list inventory; --headless --encrypt/--decrypt KEY… [--dry-run] [--yes]; ⛔ shadow keys are never modified)
+dc emit                   # store -> loadable YAML (inverse of `dc load`): 🔒 tokens byte-identical, plain values plain
+                          # (--output secrets.dc.yaml; layer variants gain .<layer>.yaml with _dc_layer routing;
+                          #  _dc/auto get their own files + printed dc load --replace/--if-missing invocations;
+                          #  --subject filters, --dry-run previews, targets must be .gitignore-covered unless --force)
 dc infisical <sub>        # infisical get|set|compare — sync dc secrets against Infisical
 dc compare <name> <path> --to <target>
 dc push <name> <path> --to <target>    # force-push local secret(s) to a remote (--dry-run, --yes)
