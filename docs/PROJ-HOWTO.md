@@ -24,7 +24,7 @@ dc set --layer base cluster name "noizu"   # target a specific layer explicitly
 ```
 
 **Verify:** `dc get <name> <path>` immediately reflects the write.
-**Gotchas:** `dc set` with no `--layer` writes to `local.yaml` (personal/IPC layer), not `base.yaml` — if you meant to commit the change, add `--layer base`. Complex paths like `key[*].field` need `yq` installed; without it `dc get` errors with an install hint instead of silently failing.
+**Gotchas:** `dc set` with no `--layer` writes to `local.yaml` (personal/IPC layer), not `base.yaml` — if you meant to commit the change, add `--layer base`. `dc set` encrypts values as `🔒` secrets by default — pass `--plain` for ordinary config values (the historic behavior), `--secret` to make the default explicit, or `--stdin` to feed either mode from a pipe. Complex paths like `key[*].field` need `yq` installed; without it `dc get` errors with an install hint instead of silently failing.
 
 ## How to: keep config in external YAML files instead of `.envrc` heredocs
 

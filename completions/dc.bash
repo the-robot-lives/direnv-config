@@ -100,7 +100,7 @@ _dc() {
         decrypt)
             return ;;  # token positional — no completion
         set)
-            opts="--layer --no-bump"
+            opts="--stdin --secret --plain --layer --no-bump"
             if [[ "$cur" != -* ]]; then
                 ((pos == 0)) && COMPREPLY=($(compgen -W "$(__dc_configs)" -- "$cur"))
                 return
