@@ -172,7 +172,7 @@ dc config set app db.password --value 'example-not-a-secret' --yes
 
 Brand-new keys insert into the **last-loaded** file (registered externals first, then `.envrc*` heredocs); use `-p/--parents` to create missing parent sections (`--below/--above/--auto` place the new top-most section; alphabetical is the default), or `--file <path>` to pin the destination. A key found in two sources is refused with every candidate listed — pick one with `--file`.
 
-**Store write vs source write.** `dc set app feature_flag true` writes the **store** (default layer `local`) and never touches your YAML; `dc config set` edits the **source file** and refreshes the store. Store-local values shadow source values on every resolution — after a `dc set`, editing the load file won't change what `dc get` returns until you `dc unset app feature_flag`.
+**Store write vs source write.** `dc set app feature_flag true` writes the **store** (default layer `local`) and never touches your YAML; `dc config set` edits the **source file** and refreshes the store. Store-local values shadow source values on every resolution — after a `dc set`, editing the load file won't change what `dc get` returns until you `dc unset app feature_flag`. `dc config set` encrypts by default: `--plain` stores a literal value with no 🔒 marker (non-secret values — overwriting an encrypted value also drops its tier marker), and `--encrypted` stores a value that is already a `🔒:v1` token verbatim; the two flags conflict.
 
 **Generate an auto value.**
 
@@ -224,7 +224,7 @@ Full CLI list in [Command reference](#command-reference).
 | `dc load <file>... [--layer L] [--if-missing] [--replace] [--replace-key K] [--no-bump]` | ingest load YAML files (later files win); register in `.meta`; bump version once |
 | `dc emit [--output F] [--subject S]... [--dry-run] [--force]` | inverse: store → loadable YAML; gitignore-gated, values never printed |
 | `dc config get <name> <path>` | find the source line (`file:line`, redacted preview) |
-| `dc config set <name> <path> --value V [--yes] [-p] [--file F]` | encrypt + splice the owning source file, then refresh the store |
+| `dc config set <name> <path> --value V [--plain\|--encrypted] [--yes] [-p] [--file F]` | encrypt + splice the owning source file, then refresh the store |
 | `dc config setall <name> [--above/--below PATH]` | insert a YAML section from stdin |
 | `dc set <name> <key> <value> [--layer L]` | store write (default layer `local`) — not a source edit |
 | `dc gen-secrets [--file F] [--inline]` | fill `🎲` placeholders with generated, encrypted secrets |
@@ -259,7 +259,7 @@ dc init / purge                    # scaffold a store / hard-delete a config or 
 dc seal                            # encryption inventory + in-place (un)seal
 ```
 
-`dc config set <subject> <path> --value X [--yes]` splices the owning `.envrc*`/registered file; `-p/--parents` builds missing parent sections (`--below/--above/--auto` place the new top-most section; alphabetical is the default with `-p`). Missing parents without `-p` fail with a hint.
+`dc config set <subject> <path> --value X [--yes]` splices the owning `.envrc*`/registered file; `-p/--parents` builds missing parent sections (`--below/--above/--auto` place the new top-most section; alphabetical is the default with `-p`). Missing parents without `-p` fail with a hint. The default encrypts the value; `--plain` stores it literally with no 🔒 marker (non-secret values — overwriting an encrypted value drops its tier marker) and `--encrypted` stores an already-encrypted `🔒:v1` token verbatim (`--plain`/`--encrypted` conflict).
 
 `dc seal` — `--list [--json]` prints `key | file:line | state`; interactive selector on a tty, `--headless --encrypt/--decrypt KEY...` (or `--encrypt-all-plain`/`--decrypt-all`) otherwise. Repeatable `--match <PAT>` / `--except <PAT>` select by leaf key name only (case-insensitive wildcards: `*` any run of chars, `?` exactly one; `--except` wins; zero matches exits non-zero). `--file`, `--dry-run`, `--yes` compose in every mode. Store layer files are never rewritten and ⛔ shadow keys are never modified. Known limitation: multi-line block scalars collapse to one quoted line on rewrite.
 

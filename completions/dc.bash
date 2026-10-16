@@ -158,7 +158,7 @@ _dc() {
                     esac
                     # Fall through to flag completion for known subcommands.
                     case "$sub" in
-                        set)    opts="--value --from --stdin --encrypted --yes --file" ;;
+                        set)    opts="--value --from --stdin --encrypted --plain --yes --file" ;;
                         setall) opts="--above --below --yes --file" ;;
                         secure) opts="--note" ;;
                     esac
