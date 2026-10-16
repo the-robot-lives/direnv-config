@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 
 use crate::cmd::config::{
     compute_set_line, current_value_text, read_lines, resolve_forced_file, same_path, splice_set,
-    write_lines_atomic,
+    write_lines_atomic, ValueMode,
 };
 use crate::envrc::locator::{self, KeyLoc};
 
@@ -284,7 +284,7 @@ fn build_plan(
             let token = crate::crypto::encode_token(&body, tier, key)?;
             let to = format!("🔒 t{tier}");
             (
-                compute_set_line(&e.loc, tier, &token, false),
+                compute_set_line(&e.loc, tier, &token, ValueMode::Encrypt),
                 "plain".to_string(),
                 to,
             )
@@ -298,7 +298,7 @@ fn build_plan(
             // Restore tier: original marker bangs when present, else the
             // token's own tier, else the repo's default (0).
             let restore_tier = marker_tier.unwrap_or(tok_tier);
-            let new_line = compute_set_line(&e.loc, restore_tier, &plaintext, false);
+            let new_line = compute_set_line(&e.loc, restore_tier, &plaintext, ValueMode::Encrypt);
             (new_line, format!("🔒 t{tok_tier}"), "plain".to_string())
         };
         ops.push(PlanOp {
