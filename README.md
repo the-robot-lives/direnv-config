@@ -38,6 +38,181 @@ After `direnv allow`: `dc get cluster name` reads a value, `dc env` shows the fl
 - **Sealed secrets.** `dc encrypt` wraps plaintext as `🔒:v1:t<tier>:…` tokens stored at rest; `dc decrypt` / `dc get --reveal` / `dc bat --reveal` read them back (audited). ⛔ marks shadowed keys moved out of band (`dc config secure`).
 - **Shell functions.** `dc_yaml`, `dc_load`, `dc_get`, `dc_set`, `dc_unset`, `dc_prune`, `dc_bump`, `dc_export` — thin, idempotent wrappers over `dc` for use in `.envrc`.
 
+## Load YAML files (`dc load`)
+
+A *load YAML file* is a plain YAML file that feeds a store the same way `dc_yaml` heredocs do — one file can declare many named configs at once, lives outside `.envrc`, and is diffable/committable like any YAML. `dc load <file>...` ingests it through the exact `dc yaml` pipeline (same split-secrets + encryption), registers it in the store's `.meta`, and bumps the version once at the end.
+
+**Discovery is explicit.** dc does **not** search for load files — you name them on the command line (paths are canonicalized; the absolute path is recorded in `.meta`). What *is* discovered automatically:
+
+| Source | How dc finds it |
+|---|---|
+| `.envrc*` heredocs | every `.envrc` and `.envrc.*` in the project directory (non-recursive, sorted) |
+| load files | only where invoked: `dc load <file>...` (or `dc_load` in `.envrc`); re-loaded files re-register, in argument order |
+| store for a directory | CWD, then each parent directory (`dc init` creates it) |
+| parent stores | ancestor store dirs under `~/.local/state/direnv-config/`, merged oldest-first |
+| `.infisical-secrets.yaml` | `$INFISICAL_SECRETS_FILE`, else an upward walk from CWD (drives `dc infisical` only) |
+
+### File schema (annotated example)
+
+Root mapping = subject name → config body. A lone `subjects:` wrapper key is an optional alternative; mixing it with other root keys is an error (refused, never guessed).
+
+```yaml
+# config/dc.yaml — committable, non-secret defaults (loaded first)
+cluster:
+  name: noizu
+  region: us-east-1
+  kubeconfig: ~/.kube/noizu/config
+
+app:
+  log_level: info
+  db:
+    host: localhost
+    port: 5432
+
+_dc:                          # special subject: flatten rules + export list
+  flatten:
+    cluster.kubeconfig: KUBECONFIG   # explicit rule: config path → env var
+    app.db.*: APP_DB_*               # wildcard rule: app.db.host → APP_DB_HOST
+  export:
+    - app.log_level           # unmapped keys export as APP_LOG_LEVEL
+```
+
+```yaml
+# secrets/dc.local.yaml — NEVER commit (gitignore it before creating);
+# loaded second, so its keys win on conflict
+app:
+  db:
+    password: "🔒❗ example-not-a-secret"      # 🔒 = secret → encrypted into secrets.yaml
+  api_token: "🎲 api_tok 🔒 hex 32"            # 🎲 placeholder → dc gen-secrets fills in place
+  report_key: "🔒❗❗❗ example-not-a-secret"   # ❗×1–3 = sensitivity tier (low → high)
+
+cluster:
+  _dc_layer: local            # reserved routing key: store this subject in the `local` layer
+  context: minikube           # (stripped at ingest; never becomes a value)
+
+# alternative shape — subjects: wrapper (same file, one style only)
+# subjects:
+#   cluster:
+#     name: noizu
+```
+
+Value markers (identical to heredocs):
+
+| Marker | Meaning |
+|---|---|
+| *(none)* | plaintext, stored into the subject's chosen layer |
+| `🔒` | secret — encrypted to a `🔒:v1` token, **always** routed to the subject's `secrets` layer regardless of `--layer`/`_dc_layer` |
+| `❗`×0–3 | sensitivity tier suffix on `🔒` |
+| `🎲 <name> 🔒 <charset> <len>` | generator placeholder for `dc gen-secrets` |
+| `⛔` | restricted sentinel — value lives in the shadow store only (`dc config secure`) |
+
+A scalar that already *is* a `🔒:v1:…` token (padlock, no space) is stored verbatim — pasting at-rest tokens never double-wraps them. A subject whose body is entirely secrets gets no base-layer file at all.
+
+### Precedence — who wins
+
+```text
+within one layer   ingest order decides: each load deep-merges over what's
+                   already stored — later files/args win; there is no
+                   "heredoc beats file" rule, only who loaded last
+across layers      base(1000) → $DC_ENV(750, default dev) → local(500) → secrets(250)
+                   smaller weight = merged later = wins; override per subject via
+                   `configuration.dc.layers` (layer → weight) in its base.yaml
+across stores      parent chain merges ancestor-first; a child's root-level
+                   `_dc_pruned: true` breaks inheritance for that config
+at read time       dc get: --override ENV → stored value → --fallback ENV
+                   → --auto password|hex [len] → --default (miss = exit 1)
+```
+
+Deep-merge semantics: maps recurse; sequences and scalars **replace** wholesale (no element-wise merge); `_dc_pruned: true` tombstones prune the subtree.
+
+### Bootstrap a new project
+
+1. Install once per machine: `make install` (binary, direnv stdlib copy at `~/.config/direnv/lib/dc.sh` — direnv sources that directory automatically, so `dc_load`/`dc_yaml`/`dc_export` work in any `.envrc` without imports — and the `dc-init` shell hook). `make doctor` verifies all three.
+2. `cd <project> && dc init` — creates the store under `~/.local/state/direnv-config/<path-hash>/` (optional: `dc init --from-envrc .envrc` imports existing `export` lines into an `imported` config).
+3. Write the load files: a committable `config/dc.yaml` for defaults, a `secrets/dc.local.yaml` for real values — **add the secrets file to `.gitignore` before creating it**: `🔒`-marked values sit as plaintext in the file until ingested; only the store holds ciphertext.
+4. Wire direnv — keep the dc calls in `.envrc.dc` and source it from `.envrc`:
+   ```bash
+   # .envrc
+   source_env .envrc.dc
+
+   # .envrc.dc
+   dc_load config/dc.yaml
+   dc_load secrets/dc.local.yaml
+   dc_export                    # evals `dc env`: DC_ROOT/DC_VERSION/DC_ENV + flatten rules
+   ```
+5. `direnv allow`, then verify: `dc status` (merge state), `dc env --list` (what would export), `dc get app db.host`.
+
+### Everyday workflows
+
+**Add a secret.** Prefer the source-splice command — it encrypts, edits the owning file in place (registered load files included), preserves comments, and re-ingests so the store updates immediately:
+
+```bash
+dc config get app db.password                       # locate: file:line + redacted preview
+dc config set app db.password --value 'example-not-a-secret' --yes
+```
+
+Brand-new keys insert into the **last-loaded** file (registered externals first, then `.envrc*` heredocs); use `-p/--parents` to create missing parent sections (`--below/--above/--auto` place the new top-most section; alphabetical is the default), or `--file <path>` to pin the destination. A key found in two sources is refused with every candidate listed — pick one with `--file`.
+
+**Store write vs source write.** `dc set app feature_flag true` writes the **store** (default layer `local`) and never touches your YAML; `dc config set` edits the **source file** and refreshes the store. Store-local values shadow source values on every resolution — after a `dc set`, editing the load file won't change what `dc get` returns until you `dc unset app feature_flag`.
+
+**Generate an auto value.**
+
+```bash
+dc get app db.password --auto password 32     # generate on miss; NOT persisted to the config
+dc gen-secrets --file secrets/dc.local.yaml --inline   # fill every 🎲 placeholder in place
+```
+
+`--auto` memoizes the first draw only when an `--override`/`--fallback` env var was named — as a plaintext `export` line appended to `<project>/secrets/.envrc.auto`, which nothing sources. Durable values still go through `dc config set` / `dc set`.
+
+**Override locally.** Per-machine value: `dc set` (lands in `local.yaml`). Per-environment: a `dev.yaml`/`staging.yaml` overlay selected by `$DC_ENV` (default `dev`). Per-invocation: `dc_export APP_DB_PASSWORD=app.db.password --override APP_DB_PASSWORD` (env wins when set) or `--fallback APP_DB_PASSWORD` (dc wins, env as fallback).
+
+**Inspect safely.** Encrypted values print as `🔒 **redacted**` unless you reveal:
+
+```bash
+dc bat app db                        # masked YAML browse; --flat = file:line: paths, no values
+dc secrets --sources                 # every in-scope key name (never values) + where it lives
+dc compare app db.password --to "infisical:///app/db/DB_PASSWORD"   # digest-only ==/!=/??
+STATUS=$(dc status); dc env --diff   # merge state; what changed vs the live environment
+```
+
+Capture plaintext only when needed, straight into a variable (audited; verify by length, never by printing):
+
+```bash
+DB_PASS=$(dc get app db.password --reveal --raw 2>/dev/null); echo "${#DB_PASS} chars"
+```
+
+**Round-trip / back up.** `dc emit` re-emits the store as loadable YAML (`secrets.dc.yaml` by default, `<out>.<layer>.yaml` variants carrying `_dc_layer`, exact `dc load` invocations printed for the special `_dc`/`auto` subjects). Tokens re-emit byte-identical, values are never printed, and targets must be `.gitignore`-covered unless `--force` — `dc load` on the emitted files reconstructs the same store.
+
+### Pitfalls
+
+- **`dc set` ≠ `dc config set`.** The first writes the store's `local` layer; the second splices your YAML. A forgotten store-local write silently outvotes every later edit of the load file (local 500 beats base 1000).
+- **`--if-missing` seeds once.** A file loaded with it is never re-ingested on refresh — later edits to that file are invisible; its values are store-owned after the first load.
+- **`subjects:` must be alone.** Wrapper plus other root keys is an ambiguity error; pick one shape per file.
+- **Sequences replace, never merge.** Re-loading a file with a shorter list drops the old elements wholesale.
+- **`--auto` is not persistence.** Without a named env var nothing is written anywhere (a fresh draw each miss); with one, the memo goes to `secrets/.envrc.auto` in plaintext and nothing sources it.
+- **Env overrides read the live shell.** Under `--override ENV`, a stale exported variable in your current shell beats the freshly stored dc value (empty strings are ignored). `cd` out/in or `direnv reload` to re-evaluate.
+- **No flatten rule, no env var.** Keys become env vars only via `_dc.flatten` rules (explicit or `prefix.*: PREFIX_*`) or the `_dc.export` list (`path.to.key` → `PATH_TO_KEY`); key name ≠ var name unless a rule says so. Wildcard rules skip `_`-prefixed keys.
+- **The registry is append-only.** Each `dc load` re-registers its files in argument order (last = last loaded, and the insert target for new keys). Deleting a loaded file yields warnings, not failures; there is no deregister command yet (#15).
+- **The secrets map is a separate mechanism.** `dc:`/`override:`/`auto:`/`default:` in `.infisical-secrets.yaml` are that file's per-var spec keys (precedence `ref → template → file → env → dc → fallback_dc → default`), not store layers — the fleet shorthand "layering dc: → override: → auto: → default:" refers to them. dc parses `auto:` there but never generates, and an entry with only `override:` has no `dc` source for `dc infisical get/set/compare` to round-trip.
+- **Unmarked values print in the clear.** Bare `dc get` masks only `🔒` tokens and `⛔` sentinels; a secret stored without the marker comes back verbatim. Same for `dc get <subject>` with no path — the resolved snapshot prints with tokens still encrypted but plain values as-is. Keep every sensitive value `🔒`-marked.
+
+### Quick reference (load workflow)
+
+Full CLI list in [Command reference](#command-reference).
+
+| Command | What it does |
+|---|---|
+| `dc load <file>... [--layer L] [--if-missing] [--replace] [--replace-key K] [--no-bump]` | ingest load YAML files (later files win); register in `.meta`; bump version once |
+| `dc emit [--output F] [--subject S]... [--dry-run] [--force]` | inverse: store → loadable YAML; gitignore-gated, values never printed |
+| `dc config get <name> <path>` | find the source line (`file:line`, redacted preview) |
+| `dc config set <name> <path> --value V [--yes] [-p] [--file F]` | encrypt + splice the owning source file, then refresh the store |
+| `dc config setall <name> [--above/--below PATH]` | insert a YAML section from stdin |
+| `dc set <name> <key> <value> [--layer L]` | store write (default layer `local`) — not a source edit |
+| `dc gen-secrets [--file F] [--inline]` | fill `🎲` placeholders with generated, encrypted secrets |
+| `dc secrets [--sources]` / `dc bat [name] [--flat]` | key names / masked browse — values never printed |
+| `dc compare <name> <path> --to <target>` | digest-only compare against `infisical://` / `k8://` targets |
+| `dc status` / `dc env --list` / `dc env --diff` | merge state / what would export / what changed |
+
 ## Command reference
 
 Run `dc --help` (or `dc <command> --help`) for full flags.

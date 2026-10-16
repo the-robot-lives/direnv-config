@@ -1,6 +1,7 @@
 # Changelog — utilities/shell/direnv-config
 
 ## 2026-10-17
+- docs(readme): in-depth guide to dc load yaml secret configuration
 - Docs: refresh PROJ-LAYOUT (+layout/web.md), rewrite PROJ-ARCH (+arch/secrets-and-sealing, source-sync, remote-sync, ipc-model, sdk-backends), clean up README — direct to develop (markdown-only).
 
 ## [Unreleased]
