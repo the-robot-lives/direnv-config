@@ -135,7 +135,7 @@ Known names — code-reserved vs pure convention:
 |---|---|---|
 | `_dc` | flatten/export rules driving `dc env` (`src/cmd/env.rs:10`); emitted alone with `--replace` | reserved (`src/cmd/emit.rs:48`) |
 | `auto` | conventional home for generated/memo values; emitted alone with `--if-missing`. Not magic to `dc get` — generation is the `--auto password\|hex [len]` flag (`src/cmd/get.rs:236-247`); the memo lands in `<project>/secrets/.envrc.auto` only when `--override`/`--fallback` named an env var (`src/cmd/get.rs:174-195`) | semi-special (`src/cmd/emit.rs:48`) |
-| `secrets` | fleet home for Infisical connection creds — `dc infisical` falls back to e.g. `secrets infisical.host` (`src/infisical.rs:50-68`) | convention |
+| `secrets` | general/shared credentials (e.g. `secrets smtp.host`, `secrets google.marketing.*`), including Infisical's connection settings (`dc infisical` falls back to e.g. `secrets infisical.host`; `src/infisical.rs:50-68`) | convention |
 | `services` | per-service credentials, referenced by `.infisical-secrets.yaml` `dc:` specs like `services.design.<key>` (`src/secretsmap.rs:61`) | convention |
 | `apps` | per-app config/creds | convention only — nothing in code references it |
 | *anything else* | whatever you load | free |
