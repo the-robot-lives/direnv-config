@@ -1,6 +1,8 @@
 # Changelog — utilities/shell/direnv-config
 
 ## 2026-10-17
+- feat(config): `dc config set --numeric` / `--bool` for typed values; plain values shown unredacted in previews (#39)
+- fix(tests): clippy -D warnings in config_set_parents (#38)
 - feat(config): `dc config set --plain` stores literal values without encryption (#37)
 - docs(readme): in-depth guide to dc load yaml secret configuration
 - docs(readme): explain dc subjects (secrets/services/apps/auto/_dc) + subject cheat sheet; widen secrets row
