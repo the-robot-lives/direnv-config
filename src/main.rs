@@ -428,6 +428,16 @@ enum ConfigCmd {
         /// (overwriting an encrypted value also drops its tier marker)
         #[arg(long, conflicts_with = "encrypted")]
         plain: bool,
+        /// Store the value as an unquoted YAML number (e.g. `bip: 4`) —
+        /// implies plaintext, no marker (numbers are never encrypted;
+        /// rejects non-finite/non-numeric input)
+        #[arg(long, conflicts_with = "encrypted")]
+        numeric: bool,
+        /// Store the value as an unquoted YAML boolean (`flag: true`) —
+        /// implies plaintext, no marker; accepts `true`/`false`
+        /// case-insensitively, rejects everything else
+        #[arg(long = "bool", conflicts_with_all = ["encrypted", "numeric"])]
+        bool_flag: bool,
         #[arg(long)]
         yes: bool,
         /// Force the destination file (registered external file or .envrc*)
@@ -540,7 +550,7 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Config { sub } => match sub {
             ConfigCmd::Get { subject, path } => cmd::config::get(&subject, &path),
-            ConfigCmd::Set { subject, path, value, from, stdin, encrypted, plain, yes, file, parents, above, below, auto } => {
+            ConfigCmd::Set { subject, path, value, from, stdin, encrypted, plain, numeric, bool_flag, yes, file, parents, above, below, auto } => {
                 let spots = above.is_some() as u8 + below.is_some() as u8 + auto as u8;
                 if spots > 1 {
                     anyhow::bail!("use at most one of --above <PATH>, --below <PATH>, --auto");
@@ -565,6 +575,8 @@ fn main() -> anyhow::Result<()> {
                     stdin,
                     encrypted,
                     plain,
+                    numeric,
+                    bool_flag,
                     yes,
                     file.as_deref(),
                     parents,
