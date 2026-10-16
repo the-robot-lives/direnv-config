@@ -13,7 +13,7 @@ Paths exceeding 200 characters are truncated and suffixed with 8 hex chars of SH
 
 ## Chain Discovery
 
-`find_parent_store()` progressively strips the last `-segment` from the store name, checking if a sibling store exists at each level. This builds an implicit hierarchy without explicit parent pointers.
+`find_parent_store()` progressively strips the last `-segment` from the store name, checking if a sibling store exists at each level (a candidate counts only if it has a `.meta`). This builds an implicit hierarchy without explicit parent pointers — the optional `parent` field recorded in `.meta` is provenance metadata, not what the walk follows.
 
 Example chain for `/Users/keith/Github/k8/projects`:
 1. `Users-keith` (if exists)

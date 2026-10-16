@@ -44,4 +44,4 @@ db:
 
 ## Implementation
 
-`store::resolve::resolve_active()` in `src/store/resolve.rs` drives single-store resolution. It reads each layer file, passes them to `yaml::merge::deep_merge_multi()`, and writes the result to `.active`.
+`store::resolve::resolve_active()` in `src/store/resolve.rs` drives single-store resolution. It reads each layer file, passes them to `yaml::merge::deep_merge_multi()`, and writes the result to `.active`. Every mutating command re-runs it, so `.active` is always the current resolved snapshot; mutations hold an advisory exclusive store lock (`store::lock_store`) while they read-modify-write. A layer file that exists but cannot be parsed aborts the command (error, not an empty mapping) so a corrupt or partially written layer is never clobbered — and its data lost — by the write that follows.

@@ -1,172 +1,171 @@
-# Project Architecture
+# direnv-config — Architecture
+
+Companion docs: security model in [THREAT-MODEL.md](THREAT-MODEL.md), component ↔ directory map in [PROJ-LAYOUT.md](PROJ-LAYOUT.md), task guides in [howto/](howto/).
 
 ## Overview
 
-`direnv-config` replaces sprawling `export VAR=value` `.envrc` files with structured, versioned, mergeable YAML configs. A Rust CLI (`dc`) manages config stores on disk; a direnv stdlib extension (`dc_yaml`, `dc_export`) bridges the YAML store into shell environment variables. A `precmd` shell hook watches for version changes, enabling child-process IPC — any process can mutate the YAML store and the parent shell picks up changes on the next prompt.
+`direnv-config` replaces sprawling `export VAR=value` `.envrc` files with structured, versioned, mergeable YAML. A Rust CLI (`dc`) manages per-directory config stores under `~/.local/state/direnv-config/{path-hash}/`; a direnv stdlib extension (`dc_yaml`, `dc_load`, `dc_get`, `dc_set`, …, `dc_export`) bridges those stores into shell env vars from one-liner `.envrc` files. State lives in files, so any process — parent shell, child script, sibling tool, SDK client — can read or mutate shared config; every write bumps a monotonic `.version` counter and a `precmd` hook re-exports the environment on the next prompt (file-based IPC).
 
-Five SDK clients (TypeScript, Python, Elixir, PHP — read-only; Rust — read + write) provide application-level access to resolved configs without shelling out. Shared contract tests (`sdk/contract-tests/`) keep all SDKs behaviorally aligned, including opaque passthrough of encrypted secrets.
+Secrets are first-class, not a bolt-on. A scalar marked `🔒` (optionally tiered with `❗`) is encrypted at rest into a self-describing `🔒:v1:t<tier>:<payload>` token using XChaCha20-Poly1305, with the single key held in an external, lockable key file. Secrets are redacted by default, reveals are audited, a `⛔` sentinel routes "locked-down" values to a shadow store, and remote sync (`dc compare`/`dc push`/`dc infisical`) compares SHA-256 digests so plaintext never crosses the wire or the terminal.
+
+Five SDK clients (Rust, TypeScript, Python, Elixir, PHP — all read **and** write, each with a native file backend and a CLI subprocess backend) give application code the same resolution semantics without shelling out, held together by shared contract tests. A small Elixir/Hologram landing site (`web/`) ships via `helm/dirconfig-site`. In the Noizu fleet, `dc` owns `.envrc.dc` — the scalar-config/secret source of truth for trl-infra (AWS, Docker, Helm, Infisical credentials) — and realizes the credential layering `dc: → override: → auto: → default:` via `dc get` flags and `.infisical-secrets.yaml` spec keys.
 
 ## System Diagram
 
 ```mermaid
 graph TB
-    subgraph Shell["Shell Environment"]
-        envrc[".envrc<br/>dc_yaml + dc_export"]
-        precmd["precmd hook<br/>(dc-init)"]
-        env["Exported ENV vars"]
+    subgraph Project["Project directory"]
+        ENVRC[".envrc* sources<br/>(dc_yaml / dc_load heredocs)"]
+        EXTERN["registered external YAML files<br/>(tracked in .meta)"]
+        SHADOW[".secrets/restricted.config.yaml<br/>(shadow store)"]
     end
 
     subgraph CLI["dc CLI (Rust)"]
-        yaml_cmd["dc yaml"]
-        get_cmd["dc get"]
-        set_cmd["dc set"]
-        env_cmd["dc env"]
+        INGEST["dc yaml / dc load<br/>(split + encrypt + route)"]
+        GETSET["dc get / set / unset / prune"]
+        CFG["dc config get/set/setall/secure<br/>(line splice editors)"]
+        SEALEMIT["dc seal / dc emit<br/>(un)seal sources, store → files"]
+        ENV["dc env<br/>(flatten rules → exports)"]
+        SYNC["dc compare / push / infisical"]
     end
 
-    subgraph Store["YAML Store (~/.local/state/direnv-config/)"]
-        layers["Layer Files<br/>base → env → local → secrets"]
-        active[".active<br/>(resolved snapshot)"]
-        version[".version<br/>(monotonic counter)"]
-        dc_cfg["_dc/base.yaml<br/>(flatten rules)"]
+    subgraph State["State store — ~/.local/state/direnv-config/{path-hash}/"]
+        LAYERS["per config: base.yaml → DC_ENV.yaml →<br/>local.yaml → secrets.yaml"]
+        ACTIVE[".active (resolved snapshot)"]
+        VERSION[".version (monotonic counter)"]
+        META[".meta (source dir, registered files)"]
     end
 
-    subgraph SDKs["SDK Clients"]
-        ts["TypeScript"]
-        py["Python"]
-        ex["Elixir"]
-        php["PHP"]
-        rs["Rust (r/w)"]
+    subgraph Global["~/.config/direnv-config/"]
+        KEYS["keys (0600, root-lockable)"]
+        SETTINGS["settings.yaml (audit_log; legacy key)"]
     end
 
-    subgraph Remote["Remote Sync"]
-        inf["Infisical<br/>(reqwest + rustls)"]
-        k8s["Kubernetes<br/>(kubectl)"]
+    subgraph Consumers["Consumers"]
+        HOOK["precmd hook (dc-init)<br/>watches .version → re-eval dc env"]
+        SDKS["SDKs ×5<br/>(native + CLI backends)"]
     end
 
-    envrc -->|writes| yaml_cmd
-    yaml_cmd -->|merge + resolve| layers
-    layers -->|deep merge| active
-    yaml_cmd -->|bumps| version
-    envrc -->|reads| env_cmd
-    env_cmd -->|flatten rules| dc_cfg
-    env_cmd -->|reads| active
-    env_cmd -->|emits exports| env
-    precmd -->|watches| version
-    precmd -->|re-evals| env_cmd
-    set_cmd -->|writes local.yaml| layers
-    get_cmd -->|reads| active
-    ts & py & ex & php -->|reads| active
-    rs -->|reads + writes| layers
-    CLI -->|compare/push<br/>SHA-256 digests| inf
-    CLI -->|compare/push| k8s
+    subgraph Remote["Remote backends"]
+        INF["Infisical API<br/>(reqwest + rustls)"]
+        K8S["K8s Secrets<br/>(kubectl)"]
+    end
+
+    ENVRC -->|heredoc| INGEST
+    EXTERN -->|subject split| INGEST
+    INGEST -->|deep merge per layer| LAYERS
+    LAYERS -->|resolve| ACTIVE
+    INGEST -->|bump| VERSION
+    GETSET -->|read .active| ACTIVE
+    GETSET -->|write layer| LAYERS
+    CFG -->|splice source lines| ENVRC
+    CFG -->|splice| EXTERN
+    SEALEMIT -->|rewrite sources| ENVRC
+    KEYS -->|decrypt 🔒 tokens| GETSET
+    ACTIVE -->|flatten| ENV
+    ENV -->|export lines| HOOK
+    VERSION -->|changed?| HOOK
+    SDKS -->|read/write| LAYERS
+    SDKS -->|read .active| ACTIVE
+    SYNC -->|SHA-256 digests / push| INF
+    SYNC -->|kubectl| K8S
+    GETSET -->|⛔ resolve| SHADOW
 ```
 
 ## Core Components
 
 | Component | Purpose |
 |-----------|---------|
-| `src/cmd/` | CLI subcommands — store ops (yaml, get, set, env, init, list, bump, prune, purge, status, unset), secrets (secrets, gen, gen_secrets, encrypt, decrypt, bat), source editing (config), key management (keys), remote sync (compare, push, infisical) |
-| `src/store/` | Store discovery, layout, locking, version tracking, layer resolution, parent-chain merging |
-| `src/yaml/` | Deep merge engine, path expression evaluator, flatten-to-env-var system |
-| `src/envrc/` | Line-oriented `.envrc*` heredoc locator — edits hand-authored source files preserving comments/formatting |
-| `src/*.rs` | Secret machinery (secret, crypto, shadow, audit, secretcmp, secretsmap), Infisical/kubectl clients, settings, target addressing |
-| `lib/direnv-stdlib.sh` | direnv extension functions (`dc_yaml`, `dc_export`, `dc_get`, `dc_set`) |
-| `bin/dc-init` | Shell hook generator — registers `precmd` for version-based IPC |
-| `bin/tabbing-on-step` | Zellij pane-title helper (step name + emoji via the IPC model) |
-| `shell/dc.zsh` | Deprecated stub — completion moved to `completions/` |
-| `completions/` | Shell completions: `_dc` (zsh), `dc.bash` (bash); installed via `make install-completions` |
-| `sdk/` | Client libraries in 5 languages with native and CLI backends; `contract-tests/` shared fixtures |
-| `demo/` | Simulated project/k8 `.envrc` trees with expected resolved-state fixtures for testing |
+| `src/cmd/` | One file per subcommand — store ops (yaml, load, get/set/unset/prune, env, bump, init, status, list, purge), secrets (secrets, gen, gen-secrets, encrypt, decrypt, bat), source editing (config, seal, emit), key mgmt (keys), remote sync (compare, push, infisical) |
+| `src/store/` | State-dir discovery, path-hash store naming, advisory exclusive locking, layer resolution, parent-chain walk, `.meta` registry, `.version` counter |
+| `src/yaml/` | Deep merge with `_dc_pruned` tombstones, dot-path expressions, flatten-rule engine |
+| `src/envrc/` | `.envrc*` heredoc locator + line-oriented splicing that preserves comments/formatting |
+| `src/*.rs` | Secret marking + crypto (`secret.rs`, `crypto.rs`), audit log, shadow store, keys/settings, native Infisical client, `.infisical-secrets.yaml` parser, kubectl client, target URIs |
+| `lib/direnv-stdlib.sh` | direnv functions: `dc_yaml`, `dc_load`, `dc_get`, `dc_set`, `dc_unset`, `dc_prune`, `dc_bump`, `dc_export` |
+| `bin/dc-init` · `bin/tabbing-on-step` · `completions/` | `precmd` IPC hook emitter; Zellij pane-title helper; zsh/bash completions (`shell/dc.zsh` is a deprecated stub) |
+| `sdk/` | Five-language clients (native + CLI backends) + shared `contract-tests/` |
+| `demo/` · `tests/` | Runnable demo trees with expected-state fixtures; Rust integration tests (seal, emit, config set --parents, provenance routing) |
 
-→ *Components ↔ directories: see [PROJ-LAYOUT.md](PROJ-LAYOUT.md) (detailed breakdowns in [layout/](layout/))*
+→ *Component ↔ directory mapping: see [PROJ-LAYOUT.md](PROJ-LAYOUT.md); per-directory breakdowns in [layout/](layout/).*
 
-## Layer Resolution
+## Config Stores & Layer Resolution
 
-Configs within a single store resolve by deep-merging YAML layers in fixed order: `base.yaml` -> `{DC_ENV}.yaml` -> `local.yaml` -> `secrets.yaml`. The merged result is written to `.active`.
+Each managed directory maps to a store named by its absolute path (`/` → `-`; >200 chars truncated with an 8-hex SHA-256 suffix). Inside a store, each named config (`cluster`, `cloudflare`, `tab`, …) resolves by deep-merging four layer files in fixed order — `base.yaml` → `{DC_ENV}.yaml` (env overlay, `DC_ENV` defaults to `dev`) → `local.yaml` (personal/IPC writes) → `secrets.yaml` (gitignored) — and writing the result to `.active`. Maps merge key-by-key with overlay winning; sequences replace; missing layers are skipped; a `_dc_pruned: true` subtree is deleted from the result. Every mutating command re-resolves and rewrites `.active`; a layer file that exists but fails to parse aborts the write instead of being clobbered. Mutations hold an advisory exclusive store lock.
 
--> *See [arch/layer-resolution.md](arch/layer-resolution.md) for details*
+→ *See [arch/layer-resolution.md](arch/layer-resolution.md) for details*
 
-## Parent Chain Inheritance
+## Parent-Chain Inheritance
 
-Stores form an implicit hierarchy based on filesystem path. A store for `/Users/keith/Github/k8/projects` inherits from `/Users/keith/Github/k8` if that store exists. Resolution walks the ancestor chain and deep-merges `.active` files from oldest to newest. A `_dc_pruned: true` tombstone at any level discards all prior layers.
+Stores form an implicit hierarchy: a store's parent is found by stripping the last `-segment` from its name and checking for a sibling store (with a `.meta`) in the state dir. Resolution walks that chain oldest-ancestor-first and deep-merges each store's `.active` for the config, so a child's values override the parent's under the same merge semantics. A `_dc_pruned: true` root tombstone in any store's `.active` discards everything inherited above it — a child can break inheritance for one config without touching the parent.
 
--> *See [arch/parent-chain.md](arch/parent-chain.md) for details*
+→ *See [arch/parent-chain.md](arch/parent-chain.md) for details*
 
-## Flatten Rules
+## Flatten Rules & `dc env`
 
-The `_dc` named config contains flatten rules that map config paths to environment variable names. Explicit rules map `config.key.path` to `ENV_VAR`. Wildcard rules (`tab.*: TAB_*`) iterate all keys at a level. The `dc env` command evaluates all rules and emits `export` statements with proper shell escaping.
+The `_dc` named config's `flatten` map decouples YAML structure from env-var naming: explicit rules (`cluster.kubeconfig: KUBECONFIG`) and wildcard rules (`tab.*: TAB_*`, iterating keys, uppercased into the `*` slot, `_`-prefixed keys skipped). `dc env` evaluates all rules against the resolved chain and prints `export` statements with single-quote shell escaping, prefixed by `DC_ROOT`, `DC_VERSION`, and `DC_ENV`; `dc env --list` prints bare `key=value` pairs. `.envrc` calls `dc_export`, which evals that output — all functions are idempotent.
 
--> *See [arch/flatten-rules.md](arch/flatten-rules.md) for details*
+→ *See [arch/flatten-rules.md](arch/flatten-rules.md) for details*
+
+## Value Resolution Precedence
+
+`dc get <name> <path>` resolves through a fixed precedence (per `src/cmd/get.rs`): `--override ENV` (env var wins, dc is fallback) → the dc store → `--fallback ENV` (dc wins, env is fallback) → `--auto password|hex [len]` (generate if all sources miss) → `--default VALUE`. Values may be `🔗` pointers that redirect to another config path (max depth 8). `--auto` never writes the value into the YAML config — at most it memoizes the first draw as a plaintext `export` line appended to the project's `secrets/.envrc.auto` (only when an `--override`/`--fallback` env var was named), and nothing sources that memo; durable persistence is `dc config set --yes`. This CLI flag chain is a different mechanism from the `.infisical-secrets.yaml` layering prefixes `dc:` / `override:` / `auto:` / `default:` — per-var spec keys resolved with the populate-secrets precedence (see Remote Sync below); the fleet shorthand "credential layering dc: → override: → auto: → default:" refers to those spec keys.
 
 ## IPC Model
 
-Child processes cannot modify a parent's environment directly. `dc` works around this by writing to the shared YAML store and bumping `.version`. The `precmd` hook (installed by `dc-init`) compares the version counter on each prompt and re-evaluates `dc env` when it changes. This enables cross-process communication — a deploy script can `dc set tab status "deploying"` and the parent shell's tab title updates on the next prompt.
+Child processes cannot modify a parent's environment, so `dc` communicates through files: every mutation bumps `.version` (atomic temp+rename) after rewriting layers and `.active`. `bin/dc-init` emits a `precmd` hook (zsh + bash) that compares `.version` against the last seen value and, on change, re-evals `dc env` — so a deploy script's `dc set tab status "deploying"` reaches the parent shell on its next prompt. The same hook feeds the Zellij tab-title bridge, reading status/theme/emoji from a per-session namespace (`DC_TAB_NS`) so each tab pulls its own state.
 
-## Secret Management
+→ *See [arch/ipc-model.md](arch/ipc-model.md) for details*
 
-Secrets are first-class and distinct from settings (see the README's
-"Secret Management" section for usage).
+## Secret Management & Sealing
 
-- **Marking**: a YAML scalar is a secret when its trimmed body begins with `🔒`;
-  an optional `❗` run encodes a sensitivity tier (0–3). `⛔` is the sentinel for
-  shadowed ("locked-down") secrets.
-- **Encryption at rest**: XChaCha20-Poly1305 AEAD (RustCrypto `chacha20poly1305`)
-  with a symmetric key held in the external, lockable key file
-  (`~/.config/direnv-config/keys`, 0600; legacy fallback: `key:` in
-  `settings.yaml` — see `dc keys status/migrate/lock/unlock`). Each secret is
-  serialized as a **flat self-describing scalar** `🔒:v1:t<tier>:<base64url(nonce‖ct‖tag)>`
-  (a legacy `dcenc:v1:` prefix is still recognized). The flat-scalar shape is load-bearing: `merge`/`path`/`flatten` and **every SDK**
-  treat it as an opaque string and pass it through without the key. A contract-test
-  fixture (`sdk/contract-tests`, `secret-store`) enforces this passthrough.
-- **Routing**: `dc yaml` splits a heredoc — plain keys to the requested layer,
-  `🔒` keys encrypted into `secrets.yaml` regardless of `--layer`. Already-encrypted
-  bodies are stored verbatim (no double-encryption).
-- **Redaction by default / audited reveal**: `dc get` never decrypts unless asked
-  (`--reveal`/`--clippy`); `⛔` requires the stricter `--reveal-restricted`. Every
-  reveal appends a JSONL record to the audit log (`audit.rs`).
-- **Shadow store**: `dc config secure` relocates a secret to
-  `<project>/.secrets/restricted.config.yaml` and leaves a `⛔` sentinel resolved
-  via `shadow.rs`.
-- **Source editing**: `dc config` edits the literal `.envrc*` heredocs via a
-  line-oriented locator (`envrc/locator.rs`) that preserves comments/formatting.
-- **Remote sync**: native Infisical (reqwest blocking + rustls) and Kubernetes
-  (`kubectl`) clients power `dc compare`/`dc push`/`dc infisical`; comparison uses
-  SHA-256 digests so no plaintext or length leaks.
+A secret is a scalar whose trimmed body starts with `🔒`; a run of `❗` encodes sensitivity tier 0–3, and `⛔` marks shadowed values. At rest a secret is the flat token `🔒:v1:t<tier>:<base64url(nonce‖ciphertext‖tag)>` (XChaCha20-Poly1305; legacy `dcenc:v1:` still reads), opaque to merge/flatten and every SDK — enforced by a contract-test passthrough fixture. Ingest routes `🔒` values into `secrets.yaml` regardless of the requested layer, and already-encrypted tokens are stored verbatim (no double encryption). The key lives in `~/.config/direnv-config/keys` (0600, root-lockable via `dc keys lock`; legacy `settings.yaml key:` is a transparent fallback until `dc keys migrate`). `dc get` redacts by default with a tier-annotated placeholder; `--reveal`/`--clippy` decrypt audited, `⛔` needs the stricter `--reveal-restricted`. `dc seal` inventories and (un)seals project-scope sources in place with leaf-name `--match`/`--except` selectors; `dc config secure` relocates a secret to the shadow store.
 
-## Noizu Ecosystem Fit
+→ *See [arch/secrets-and-sealing.md](arch/secrets-and-sealing.md) for details*
 
-Unlike the sibling shell utilities under `utilities/`, which source the shared
-`share/k8-lib/` and install via the monorepo's `make install-utilities`,
-`direnv-config` is a standalone Rust project with its own `make install`
-(binary → `~/.local/bin/dc`, stdlib copy → `~/.config/direnv/lib/dc.sh`,
-`dc-init` hook in `.zshrc`). It is a *dependency* of the ecosystem rather than
-a consumer of it: the monorepo's `.envrc.k8.dc` holds scalar build/deploy
-config (AWS, Docker, Helm, Infisical creds) referenced by `.infra-config.yaml`
-tooling, and the secrets pipeline (`dc infisical`, `dc compare`, `dc push`)
-feeds the Infisical → InfisicalSecret CRD → k8s Secret flow. The `demo/k8/`
-tree simulates that infra layout (including k8-lib-style `.envrc` files) for
-testing.
+## Source ↔ Store Sync (load / emit / config)
+
+Config sources are the `.envrc*` heredocs plus external YAML files registered by `dc load` (tracked with mtime/size/layer in `.meta`). `dc load` splits each root key into a subject run through the same ingest pipeline as `dc yaml`, with per-subject `_dc_layer` routing; `dc emit` is its inverse, re-emitting the store as loadable files (`secrets.dc.yaml` plus per-layer variants; special subjects `_dc`/`auto` get their own files with the exact `dc load` invocation printed) with `🔒` tokens byte-identical — emit never needs the key. Emit refuses output paths that are git-tracked or not covered by `.gitignore` unless `--force`: plaintext-bearing files must never be silently committable. `dc config get/set/setall/secure` locate keys across both source kinds and splice the literal file lines; `set -p/--parents` builds missing parent sections with `--above`/`--below`/`--auto` (alphabetical) placement.
+
+→ *See [arch/source-sync.md](arch/source-sync.md) for details*
+
+## Remote Sync
+
+Targets are URIs: `infisical://<path>/<NAME>` and `k8://<ns>/<secret>/<KEY>` (alias `kubernetes://`). `dc compare` hashes local and remote values to SHA-256 digests and reports match/mismatch only — no plaintext, no length leak; `dc push` decrypts locally and force-writes the remote (`--dry-run`, `--yes`). `dc infisical get|set|compare` is driven by the repo-root `.infisical-secrets.yaml` (secrets-tools/v1) mapping, reproducing the fleet's populate precedence `ref → template → file → env → dc → fallback_dc → default`. The Infisical client is native Rust (universal-auth login, secrets v3, folders v2, reqwest blocking + rustls, optional Cloudflare Access headers); Kubernetes goes through `kubectl`. Client credentials resolve from env first, then dc lookups, and are never printed.
+
+→ *See [arch/remote-sync.md](arch/remote-sync.md) for details*
+
+## SDKs
+
+Five language clients — `direnv-config` (crates.io), `@noizu/direnv-config` (npm), `noizu-direnv-config` (PyPI), `:direnv_config` (Hex), `noizu/direnv-config` (Packagist) — share one API surface and all support read **and** write (`get*`, `set`, `unset`, `bump`). Each has two interchangeable backends: native (reads/writes the YAML store directly — no `dc` binary needed) and CLI (shells out to `dc`). Writes default to the `local` layer and bump `.version`, keeping the IPC contract. Shared dot-path expressions, deep merge, and layer resolution are validated by `sdk/contract-tests/` fixtures (`simple-store`, `nested-store`, `secret-store`) against `expectations.yaml` — including the opaque passthrough of encrypted tokens. SDK publishing triggers on `sdk-v*` tags.
+
+→ *See [arch/sdk-backends.md](arch/sdk-backends.md) for details*
+
+## Distribution & Operations
+
+`make install` builds `dc` and installs: binary + `dc-init` + `tabbing-on-step` to `~/.local/bin`, the stdlib copy to `~/.config/direnv/lib/dc.sh` (re-run `make install-direnv-lib` after edits), the hook line into `~/.zshrc`, and completions (`make install-completions`). `make check`/`make doctor` validate the environment; CI is GitHub Actions (`ci.yml`, `publish-sdks.yml`). Runtime state sits in `~/.local/state/direnv-config/` (XDG_STATE_HOME), settings/key in `~/.config/direnv-config/`. The project installs standalone — deliberately not via the monorepo's `make install-utilities` and with no `k8-lib` dependency — because `dc` bootstraps the environment the other utilities depend on. The landing site is an Elixir Phoenix/Hologram app containerized by a multi-stage Dockerfile (final stage must be named `production`) and deployed by the `dirconfig-site` chart.
+
+## Key Decisions
+
+- **File-based IPC over sockets** — simpler, survives restarts, works across unrelated processes; monotonic `.version` with atomic temp+rename writes beats filesystem watchers.
+- **Deep merge with `_dc_pruned` tombstones** — children override or explicitly break inheritance without editing parents.
+- **Flatten rules as config** — the YAML→env-var mapping itself lives in `_dc`, so naming changes don't touch code or `.envrc`.
+- **Flat self-describing secret tokens** — `🔒:v1` scalars ride every merge/copy/SDK untouched without the key; contract tests pin the passthrough.
+- **External lockable key file** — the one crown-jewel file is 0600 and root-lockable independently of settings and stores.
+- **Redaction by default + audited reveal + digest compare** — disclosure paths (terminal, log, wire) each get a specific control.
+- **Gitignore gates on emit** — plaintext-bearing output must never land in a committable file silently.
+- **SDK dual backends, all five read/write** — native backend removes the binary dependency; CLI backend guarantees identical semantics; contract tests keep them aligned.
+- **Standalone install** — no `k8-lib` dependency, so `dc` can provision what the rest of the fleet consumes.
 
 ## Technology Stack
 
 | Layer | Technology |
 |-------|-----------|
-| CLI | Rust (clap, serde_yaml, anyhow, chrono, sha2) |
-| Crypto | XChaCha20-Poly1305 (chacha20poly1305), base64 |
-| Remote sync | reqwest (blocking, rustls) for Infisical; `kubectl` for Kubernetes |
-| Shell integration | POSIX sh / zsh / bash |
-| Config format | YAML (serde_yaml) |
-| State location | `~/.local/state/direnv-config/` (XDG_STATE_HOME) |
-| Settings / key | `~/.config/direnv-config/settings.yaml` (audit_log, legacy key); key file `~/.config/direnv-config/keys` (preferred, lockable via `dc keys lock`) |
-| Store addressing | Path-to-name: strip leading `/`, replace `/` with `-`, SHA-256 truncation at 200 chars |
-| SDKs | TypeScript, Python, Elixir, PHP (read-only), Rust (read + write) — native (file) + CLI backends |
-| CI | GitHub Actions (`ci.yml`, `publish-sdks.yml`) |
-
-## Key Decisions
-
-- **File-based IPC over sockets**: Simpler, survives process restarts, works across unrelated processes
-- **Monotonic version counter**: Cheap change detection without filesystem watchers
-- **Deep merge with tombstones**: `_dc_pruned: true` allows child stores to explicitly delete inherited config without removing the parent
-- **Flatten rules in `_dc` config**: Decouples YAML structure from env var naming — the mapping is itself configuration
-- **SDK dual backends**: Native backend reads YAML directly (no `dc` binary needed); CLI backend shells out for compatibility. Rust SDK additionally writes; contract tests hold all five to the same expectations
-- **Standalone install**: own `make install`, not `make install-utilities` — no `k8-lib` dependency, so `dc` bootstraps environments the other utilities rely on
+| CLI | Rust — clap, serde_yaml, anyhow, sha2, rand, chrono |
+| Crypto | XChaCha20-Poly1305 (`chacha20poly1305`), base64url token encoding |
+| Remote sync | `reqwest` (blocking, rustls) for Infisical; `kubectl` for Kubernetes |
+| Shell integration | POSIX sh / zsh / bash (direnv stdlib, `precmd` hook, completions) |
+| Config format | YAML (serde_yaml); state under `~/.local/state/direnv-config/` |
+| Settings / key | `~/.config/direnv-config/settings.yaml`; key file `~/.config/direnv-config/keys` (`$DC_KEYS_FILE` override) |
+| SDKs | Rust, TypeScript, Python, Elixir, PHP — native + CLI backends |
+| Web | Elixir Phoenix/Hologram; multi-stage Docker build; Helm chart `dirconfig-site` |
+| CI | GitHub Actions — `ci.yml`, `publish-sdks.yml` (sdk-v* tags) |

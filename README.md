@@ -1,41 +1,24 @@
 # direnv-config
 
-**Repo:** https://github.com/the-robot-lives/direnv-config
+**Repo:** https://github.com/the-robot-lives/direnv-config · MIT licensed
 
-YAML-backed configuration layer for [direnv](https://direnv.net/) — replaces sprawling `export VAR=value` `.envrc` files with structured, versioned, mergeable YAML configs, and exposes them as env vars automatically. MIT licensed.
+`direnv-config` is a YAML-backed configuration layer for [direnv](https://direnv.net/). The `dc` CLI (Rust) plus a direnv shell library replace sprawling `export VAR=value` `.envrc` files with structured, versioned, mergeable YAML configs that flatten into env vars automatically. Key insight: env vars are write-once from a parent process's perspective — but state lives in files under `~/.local/state/direnv-config/{path-hash}/`, so any process (parent, child, sibling, Claude Code) can read or mutate shared config; every write bumps a monotonic version counter and holds an advisory `.lock` so concurrent shells can't clobber each other.
 
-## What
+## Install
 
-The `dc` CLI (Rust) plus a direnv shell library. Projects declare named configs (`cluster`, `cloudflare`, `tab`, …) in a one-liner `.envrc`; values are stored as layered YAML (`base.yaml` → env overlay → `local.yaml` → `secrets.yaml`) under `~/.local/state/direnv-config/{path-hash}/`, deep-merged, and flattened into shell env vars by `dc_export`.
-
-Key insight: env vars are write-once from a parent process's perspective — but a child can edit a file. Because state lives in files, any process (parent, child, sibling, Claude Code) can read or mutate shared config; every write bumps a monotonic version counter and snapshots to `history/`.
-
-## Why
-
-| Problem | direnv-config fix |
-|---|---|
-| `.envrc` files grow 50+ export lines | One-liner `.envrc` loading structured YAML |
-| No hierarchy or grouping | Named configs with nested keys |
-| Child processes can't update parent config | Edit the YAML; parent reads next access |
-| No layering (dev vs prod vs local) | Elixir-style deep merge across layer files |
-| Secrets mixed with plain config | Separate `secrets.yaml` (gitignored) |
-| No history | Timestamped snapshots on every write |
-| No sharing with external state (tab titles, etc.) | `dc_set tab status "deploying"` — file-based IPC |
-
-## Getting Started
-
-Prerequisites: `direnv` hooked into your shell; Rust toolchain to build.
+Prerequisites: [direnv](https://direnv.net/) hooked into your shell; a Rust toolchain to build.
 
 ```bash
-make compile          # cargo build
+make compile              # cargo build --release
 make test
-make install          # binary + direnv lib + shell hook
-make install-completions
-make doctor           # environment check
-make sdk-build        # / sdk-test / sdk-publish — multi-language SDK clients
+make install              # dc binary + dc-init + tabbing-on-step, direnv lib, shell hook, completions
+make install-completions  # bash + zsh completions (also part of install)
+make doctor               # diagnose install issues (make check = quick verify)
 ```
 
-Then in a project `.envrc`:
+## Quick start
+
+Declare a named config in your `.envrc` (convention: keep them in a separate `.envrc.dc` — `dc` scans every `.envrc*` in the project):
 
 ```bash
 dc_yaml cluster <<'YAML'
@@ -45,59 +28,52 @@ YAML
 dc_export
 ```
 
-## The `dc` CLI
+After `direnv allow`: `dc get cluster name` reads a value, `dc env` shows the flattened exports (what `dc_export` evals), `dc status` shows merge state.
+
+## Core concepts
+
+- **Named configs.** Each name (`cluster`, `cloudflare`, `tab`, …) is a store directory of YAML layer files, deep-merged in a fixed order: `base.yaml` (git-committable) → `$DC_ENV` overlay → `local.yaml` (personal/IPC writes) → `secrets.yaml` (gitignored). Layer weights are configurable in `base.yaml` (`configuration.dc.layers`).
+- **Flattening.** Rules in the `_dc` config decide which keys become env vars (`cluster.kubeconfig` → `KUBECONFIG`); `dc_export` evals `dc env`.
+- **Value resolution** (`dc get`): `--override ENV` (env wins) → stored dc value → `--fallback ENV` (dc wins) → `--auto` generated → `--default`. `--auto` generates on miss but does **not** persist the value into your config (a first-draw memo lands in `secrets/.envrc.auto`, which nothing sources) — use `dc config set` for durable values.
+- **Sealed secrets.** `dc encrypt` wraps plaintext as `🔒:v1:t<tier>:…` tokens stored at rest; `dc decrypt` / `dc get --reveal` / `dc bat --reveal` read them back (audited). ⛔ marks shadowed keys moved out of band (`dc config secure`).
+- **Shell functions.** `dc_yaml`, `dc_load`, `dc_get`, `dc_set`, `dc_unset`, `dc_prune`, `dc_bump`, `dc_export` — thin, idempotent wrappers over `dc` for use in `.envrc`.
+
+## Command reference
+
+Run `dc --help` (or `dc <command> --help`) for full flags.
 
 ```bash
-dc yaml <name>            # merge YAML from stdin (--replace, --replace-key, --if-missing, --layer)
-dc load <file> [<file>...]  # ingest external YAML file(s): subject -> body, or a subjects: wrapper
-                          # (--layer default for subjects without _dc_layer, plus the yaml flags)
-dc get <name> [path]      # read a value (--raw)
-dc set / unset / bump     # mutate values / version counter
-dc list / status / env    # configs, merge state, resolved env
-dc gen / gen-secrets      # generate values
-dc encrypt / decrypt      # secret material
-dc secrets                # list every in-scope key name (.envrc* heredocs + dc-loaded files + store layers)
-                          # (--sources annotates each key with its file:line / store:<subject>/<layer> origins)
-dc seal                   # interactive seal/unseal selector over project-scope sources (never touches store files)
-                          # (--list inventory; --headless --encrypt/--decrypt KEY… [--dry-run] [--yes];
-                          #  --match <PAT> / --except <PAT> (repeatable) select by LEAF KEY NAME only — the last
-                          #  dot-segment (db_password of app.db.password), never the subject or full path;
-                          #  patterns are case-insensitive wildcards, anchored to the whole name:
-                          #  `*` = any run of characters (incl. none), `?` = exactly one char, all else literal;
-                          #  --match patterns OR together, --except always wins over --match; selectors apply in
-                          #  every mode (--list, TUI, headless, explicit or bulk actions) and compose with --dry-run
-                          #  and --json (which reports `selected` + `selected_keys`); matching zero keys exits
-                          #  non-zero — never a silent success;
-                          #  decrypt restores `🔒 <value>` plaintext-at-rest for bare originals;
-                          #  multi-line block-scalar values collapse to one quoted line on rewrite (known limitation);
-                          #  ⛔ shadow keys are never modified)
-dc emit                   # store -> loadable YAML (inverse of `dc load`): 🔒 tokens byte-identical, plain values plain
-                          # (--output secrets.dc.yaml; layer variants gain .<layer>.yaml with _dc_layer routing;
-                          #  _dc/auto get their own files + printed dc load --replace/--if-missing invocations;
-                          #  --subject filters, --dry-run previews, targets must be .gitignore-covered unless --force)
-dc infisical <sub>        # infisical get|set|compare — sync dc secrets against Infisical
-dc compare <name> <path> --to <target>
-dc push <name> <path> --to <target>    # force-push local secret(s) to a remote (--dry-run, --yes)
-dc bat --all --flat --filter-key <regex>
-dc config <sub>           # locate and edit values in source .envrc* and dc-loaded files
-                          # --file <path> forces the destination (validated against known sources)
-dc keys <sub>             # manage the lockable encryption-key file (status|migrate|lock|unlock)
-dc prune / purge          # hygiene
-dc init                   # scaffold a store
+dc yaml <name>                     # merge YAML from stdin (--replace --replace-key --if-missing --layer)
+dc load <file>...                  # ingest external YAML files; root keys = subjects (later files win)
+dc get <name> [path]               # read a value (--raw --override --fallback --auto --default --reveal --clippy)
+dc set / unset / prune / bump      # mutate values / remove keys or branches / bump .version
+dc env                             # resolved env vars (--list --diff); what dc_export evals
+dc list / status                   # known stores / current merge state
+dc gen / gen-secrets               # random secrets (encrypted by default) / fill 🎲 placeholders
+dc encrypt / decrypt               # 🔒:v1 token round-trip
+dc secrets                         # every in-scope key name, never values (--json --sources)
+dc emit                            # store -> loadable YAML (inverse of dc load; gitignore-gated)
+dc bat [subject]                   # browse/search with secrets masked (--all --flat --filter-key --reveal)
+dc compare <name> <path> --to <target>   # compare a local secret against remote targets (no value output)
+dc push <name> <path> --to <target>      # force-push secrets (infisical:// kubernetes://) (--dry-run --yes)
+dc infisical get|set|compare       # round-trip dc secrets against Infisical
+dc config get|set|setall|secure    # locate/edit values in source .envrc* files
+dc keys status|migrate|lock|unlock # manage the external encryption-key file
+dc init / purge                    # scaffold a store / hard-delete a config or store
+dc seal                            # encryption inventory + in-place (un)seal
 ```
 
-In `.envrc`: `dc_yaml` (deep merge, preserves sibling keys — the workhorse), `dc_yaml <name> --replace` (overwrite a whole named config's layer), `dc_load <file>...` (same ingest path for external YAML files; later files win on conflict), plus export helpers like `dc_export` that flatten per `_dc/` flatten rules. All functions are idempotent.
+`dc config set <subject> <path> --value X [--yes]` splices the owning `.envrc*`/registered file; `-p/--parents` builds missing parent sections (`--below/--above/--auto` place the new top-most section; alphabetical is the default with `-p`). Missing parents without `-p` fail with a hint.
 
-## How It Works
+`dc seal` — `--list [--json]` prints `key | file:line | state`; interactive selector on a tty, `--headless --encrypt/--decrypt KEY...` (or `--encrypt-all-plain`/`--decrypt-all`) otherwise. Repeatable `--match <PAT>` / `--except <PAT>` select by leaf key name only (case-insensitive wildcards: `*` any run of chars, `?` exactly one; `--except` wins; zero matches exits non-zero). `--file`, `--dry-run`, `--yes` compose in every mode. Store layer files are never rewritten and ⛔ shadow keys are never modified. Known limitation: multi-line block scalars collapse to one quoted line on rewrite.
 
-- Each named config lives in its own store directory with `base.yaml` (git-committable), env overlays, `local.yaml` (personal/IPC writes), `secrets.yaml` (gitignored), `.active` (resolved merge snapshot), and a `.version` counter.
-- Config sources: `dc_yaml` heredocs in `.envrc*` plus any YAML files registered via `dc load` (tracked, with mtime/size, in the store's `.meta`). `dc config get/set` locate keys across both; edits splice the owning file and new keys land in the last-loaded file unless `--file` overrides.
-- `dc config set -p/--parents` creates missing parent sections: `dc config set secrets inference.jev.api_key --value X -p --below sendgrid` inserts `inference:`/`jev:` as nested mappings and the leaf carries the 🔒 marker/token exactly like a plain `set`. Placement of the new top-most missing section among its siblings (mutually exclusive): `--below <PATH>` lands after the anchor's whole block, `--above <PATH>` before the anchor line, `--auto` takes the alphabetical spot (the default with `-p`; appends at the end with no siblings). Without `-p` a missing parent still fails — the error now hints at `-p` — and `--above/--below/--auto` without `-p` are rejected (they only matter when a section is actually missing; `-p` with every parent already present simply honours the placement for the new leaf).
-- Every mutating call regenerates `.active` and writes a timestamped snapshot to `history/`.
-- Flattening rules in `_dc/base.yaml` decide which keys become env vars (`cluster.kubeconfig` → `KUBECONFIG`, etc.).
-- Integrations in `src/`: Infisical sync, Kubernetes (kubeconfig handling), crypto/secret tooling, audit and shadowing.
-- `bin/dc-init` scaffolds projects; `bin/tabbing-on-step` feeds terminal tab-title state.
+## SDKs
+
+Client libraries in Rust, TypeScript, Python, Elixir, and PHP share one API surface (`get_string`, `set`, …) for reading and writing dc stores from application code. `make sdk-build` / `sdk-test` / `sdk-publish` fan out to all five. See [sdk/README.md](sdk/README.md).
 
 ## Docs
 
-Extensive documentation in `docs/` — `PROJ-ARCH`, `PROJ-LAYOUT`, `PROJ-SCHEMA`, `PROJ-FAQ`, `PROJ-HOWTO`, `THREAT-MODEL`, `TEST-HEALTH` (each with a `.summary.md` digest), task howtos in `docs/howto/`, internals in `docs/arch/` (flatten rules, layer resolution, parent chain) and `docs/layout/`; `demo/` has a runnable walkthrough.
+- Architecture: [docs/PROJ-ARCH.md](docs/PROJ-ARCH.md) (digest: [PROJ-ARCH.summary.md](docs/PROJ-ARCH.summary.md)); internals in [docs/arch/](docs/arch/) — flatten rules, layer resolution, parent chain.
+- Repo layout: [docs/PROJ-LAYOUT.md](docs/PROJ-LAYOUT.md) (digest: [PROJ-LAYOUT.summary.md](docs/PROJ-LAYOUT.summary.md)); per-directory notes in [docs/layout/](docs/layout/).
+- More: schema ([docs/PROJ-SCHEMA.md](docs/PROJ-SCHEMA.md)), FAQ ([docs/PROJ-FAQ.md](docs/PROJ-FAQ.md)), howtos ([docs/PROJ-HOWTO.md](docs/PROJ-HOWTO.md), [docs/howto/](docs/howto/)), threat model ([docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)), test health ([docs/TEST-HEALTH.md](docs/TEST-HEALTH.md)) — each has a `.summary.md` digest except TEST-HEALTH.
+- `demo/` has a runnable walkthrough; `web/` is the Elixir/Hologram landing site, deployed via `helm/dirconfig-site`.
