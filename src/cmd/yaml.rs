@@ -98,7 +98,77 @@ pub(crate) fn apply(
         std::fs::write(&secrets_file, serde_yaml::to_string(&merged)?)?;
     }
 
+    // A plain arrival retires the stale ghost: if this path was 🔒 before and
+    // now arrives plain, the old token left in the secrets layer would keep
+    // outranking the fresh plain value on every resolve (the secrets overlay
+    // wins over lower layers). Skipped when the caller explicitly targets the
+    // secrets layer — there the plain keys BELONG in secrets.yaml.
+    if !plain_is_empty && layer_name != "secrets" {
+        clear_shadowed_secrets(store, name, plain)?;
+    }
+
     Ok(())
+}
+
+/// Delete every leaf path of the incoming plain tree from the `secrets` layer
+/// file (pruning now-empty parent maps). Paths the plain tree does not mention
+/// are never touched, so unrelated secrets survive; covers `dc load`,
+/// `dc yaml`, and every `dc config set` mode via the shared ingest pipeline.
+fn clear_shadowed_secrets(store: &Path, name: &str, plain: &Value) -> Result<()> {
+    let secrets_file = crate::store::layout::layer_path(store, name, "secrets");
+    if !secrets_file.exists() {
+        return Ok(());
+    }
+    let mut existing = crate::store::load_layer(&secrets_file)?;
+    let mut changed = false;
+    for path in plain_leaf_paths(plain) {
+        if crate::yaml::path::delete_path(&mut existing, &path) {
+            changed = true;
+        }
+    }
+    if changed {
+        prune_empty_mappings(&mut existing);
+        std::fs::write(&secrets_file, serde_yaml::to_string(&existing)?)?;
+    }
+    Ok(())
+}
+
+/// Dot-paths of every non-mapping node in `plain` — the values that arrived
+/// plain from this ingest. `⛔` sentinels are excluded: `dc config secure`
+/// deliberately places that sentinel in the secrets layer, and the plain `⛔`
+/// a later refresh re-ingests from the source must not delete it.
+fn plain_leaf_paths(value: &Value) -> Vec<String> {
+    fn walk(v: &Value, prefix: &str, out: &mut Vec<String>) {
+        match v {
+            Value::Mapping(m) => {
+                for (k, child) in m {
+                    let key = k.as_str().unwrap_or_default();
+                    let path = if prefix.is_empty() {
+                        key.to_string()
+                    } else {
+                        format!("{prefix}.{key}")
+                    };
+                    walk(child, &path, out);
+                }
+            }
+            Value::String(s) if crate::secret::is_restricted_sentinel(s) => {}
+            _ => out.push(prefix.to_string()),
+        }
+    }
+    let mut out = Vec::new();
+    walk(value, "", &mut out);
+    out
+}
+
+/// Recursively drop mappings that became empty after leaf deletion (bottom-up,
+/// so a branch whose whole subtree was cleared disappears too).
+fn prune_empty_mappings(value: &mut Value) {
+    if let Value::Mapping(m) = value {
+        for (_, child) in m.iter_mut() {
+            prune_empty_mappings(child);
+        }
+        m.retain(|_, child| !matches!(child, Value::Mapping(cm) if cm.is_empty()));
+    }
 }
 
 fn write_layer(layer_file: &Path, input: &Value, replace: bool, replace_key: Option<&str>) -> Result<()> {
@@ -127,6 +197,65 @@ fn write_layer(layer_file: &Path, input: &Value, replace: bool, replace_key: Opt
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn plain_leaf_paths_enumerates_leaves_skips_sentinels() {
+        let v: Value =
+            serde_yaml::from_str("db:\n  host: h\n  port: 5432\n  password: \"⛔\"\nflag: true\n")
+                .unwrap();
+        let mut paths = plain_leaf_paths(&v);
+        paths.sort();
+        assert_eq!(
+            paths,
+            vec!["db.host", "db.port", "flag"],
+            "⛔ leaf excluded"
+        );
+    }
+
+    #[test]
+    fn clear_shadowed_secrets_prunes_empty_parents_and_keeps_unrelated() {
+        let tmp = TempDir::new().unwrap();
+        let store = tmp.path();
+        let secrets: Value = serde_yaml::from_str(
+            "db:\n  password: \"🔒:v1:ghost\"\n  host: \"🔒:v1:keep\"\nother: \"🔒:v1:stay\"\n",
+        )
+        .unwrap();
+        let secrets_file = crate::store::layout::layer_path(store, "cf", "secrets");
+        std::fs::create_dir_all(secrets_file.parent().unwrap()).unwrap();
+        std::fs::write(&secrets_file, serde_yaml::to_string(&secrets).unwrap()).unwrap();
+
+        // Plain arrival for db.password only.
+        let plain: Value = serde_yaml::from_str("db:\n  password: new-plain\n").unwrap();
+        clear_shadowed_secrets(store, "cf", &plain).unwrap();
+
+        let after = read(store, "cf", "secrets");
+        assert!(
+            crate::yaml::path::get_path(&after, "db.password").is_none(),
+            "ghost cleared: {}",
+            serde_yaml::to_string(&after).unwrap()
+        );
+        assert!(
+            crate::yaml::path::get_path(&after, "db.host").is_some(),
+            "unrelated sibling untouched: {}",
+            serde_yaml::to_string(&after).unwrap()
+        );
+        assert!(
+            crate::yaml::path::get_path(&after, "other").is_some(),
+            "unmentioned key untouched: {}",
+            serde_yaml::to_string(&after).unwrap()
+        );
+
+        // Clearing the last leaf of a branch removes the empty parent map too.
+        let plain2: Value = serde_yaml::from_str("db:\n  host: plain-h\n").unwrap();
+        clear_shadowed_secrets(store, "cf", &plain2).unwrap();
+        let after2 = read(store, "cf", "secrets");
+        assert_eq!(
+            serde_yaml::to_string(&after2).unwrap(),
+            "other: 🔒:v1:stay\n",
+            "empty db: parent pruned: {}",
+            serde_yaml::to_string(&after2).unwrap()
+        );
+    }
 
     const KEY: [u8; 32] = [9u8; 32];
 

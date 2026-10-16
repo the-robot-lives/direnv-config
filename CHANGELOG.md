@@ -1,6 +1,7 @@
 # Changelog — utilities/shell/direnv-config
 
 ## 2026-10-17
+- fix(store): plain value replaces a stale 🔒 secrets-layer entry instead of being shadowed by it (#40)
 - feat(config): `dc config set --numeric` / `--bool` for typed values; plain values shown unredacted in previews (#39)
 - fix(tests): clippy -D warnings in config_set_parents (#38)
 - feat(config): `dc config set --plain` stores literal values without encryption (#37)
