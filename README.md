@@ -125,6 +125,25 @@ at read time       dc get: --override ENV → stored value → --fallback ENV
 
 Deep-merge semantics: maps recurse; sequences and scalars **replace** wholesale (no element-wise merge); `_dc_pruned: true` tombstones prune the subtree.
 
+### Subjects — what `dc get <subject>` means
+
+`dc get`'s first positional is a **subject**: one named config, i.e. one subdirectory of the active store. `dc get services design.authentik_api_token` = subject `services`, YAML path `design.authentik_api_token`. The set is fully dynamic — no enum: a subject is any subdirectory of the store (`src/cmd/emit.rs:276` skips dot-dirs and `history`), created by `dc load` (root keys or the `subjects:` wrapper, `src/cmd/load.rs:38-58`), `dc config set`, or `dc init`. Reading resolves `<store>/<subject>/.active` deep-merged across the parent-store chain (`src/store/resolve.rs:57-87`; weights in [Precedence](#precedence--who-wins)). A value of the form `🔗 subject.path` is chased to its target, max depth 8 (`src/cmd/get.rs:6,29-47`).
+
+Known names — code-reserved vs pure convention:
+
+| Subject | What it's for | Status |
+|---|---|---|
+| `_dc` | flatten/export rules driving `dc env` (`src/cmd/env.rs:10`); emitted alone with `--replace` | reserved (`src/cmd/emit.rs:48`) |
+| `auto` | conventional home for generated/memo values; emitted alone with `--if-missing`. Not magic to `dc get` — generation is the `--auto password\|hex [len]` flag (`src/cmd/get.rs:236-247`); the memo lands in `<project>/secrets/.envrc.auto` only when `--override`/`--fallback` named an env var (`src/cmd/get.rs:174-195`) | semi-special (`src/cmd/emit.rs:48`) |
+| `secrets` | fleet home for Infisical connection creds — `dc infisical` falls back to e.g. `secrets infisical.host` (`src/infisical.rs:50-68`) | convention |
+| `services` | per-service credentials, referenced by `.infisical-secrets.yaml` `dc:` specs like `services.design.<key>` (`src/secretsmap.rs:61`) | convention |
+| `apps` | per-app config/creds | convention only — nothing in code references it |
+| *anything else* | whatever you load | free |
+
+Subjects live at `~/.local/state/direnv-config/<path-hash>/<subject>/{base.yaml,<DC_ENV>.yaml,local.yaml,secrets.yaml,.active}` (`src/store/layout.rs:7-38`; layer order in [Precedence](#precedence--who-wins)).
+
+Nothing maps a subject+key to an env var by itself — the only bridges are the `_dc` flatten/export rules ([Pitfalls](#pitfalls)), the shell lib (`dc_load`/`dc_yaml`/`dc_export`), and `.infisical-secrets.yaml` `dc:` specs. Reads are masked: `🔒` values print redacted unless `--reveal`/`--clippy`, `⛔` restricted needs `--reveal-restricted` (`src/cmd/get.rs:104-146`). Safe listing: `dc status` (subject names only, from `.meta`, `src/cmd/status.rs:16-19`), `dc list` (stores + config counts), `dc secrets` (key names per subject/layer, never values); `dc emit` re-renders structure with tokens, never values.
+
 ### Bootstrap a new project
 
 1. Install once per machine: `make install` (binary, direnv stdlib copy at `~/.config/direnv/lib/dc.sh` — direnv sources that directory automatically, so `dc_load`/`dc_yaml`/`dc_export` work in any `.envrc` without imports — and the `dc-init` shell hook). `make doctor` verifies all three.
@@ -213,6 +232,8 @@ Full CLI list in [Command reference](#command-reference).
 | `dc compare <name> <path> --to <target>` | digest-only compare against `infisical://` / `k8://` targets |
 | `dc status` / `dc env --list` / `dc env --diff` | merge state / what would export / what changed |
 
+`<name>` above is a **subject** — a named config in the store; see [Subjects](#subjects--what-dc-get-subject-means).
+
 ## Command reference
 
 Run `dc --help` (or `dc <command> --help`) for full flags.
@@ -220,7 +241,7 @@ Run `dc --help` (or `dc <command> --help`) for full flags.
 ```bash
 dc yaml <name>                     # merge YAML from stdin (--replace --replace-key --if-missing --layer)
 dc load <file>...                  # ingest external YAML files; root keys = subjects (later files win)
-dc get <name> [path]               # read a value (--raw --override --fallback --auto --default --reveal --clippy)
+dc get <name> [path]               # read a value (<name> = subject; --raw --override --fallback --auto --default --reveal --clippy)
 dc set / unset / prune / bump      # mutate values / remove keys or branches / bump .version
 dc env                             # resolved env vars (--list --diff); what dc_export evals
 dc list / status                   # known stores / current merge state
