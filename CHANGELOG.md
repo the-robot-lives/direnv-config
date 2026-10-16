@@ -1,6 +1,7 @@
 # Changelog — utilities/shell/direnv-config
 
 ## 2026-10-17
+- feat(config): `dc config set --plain` stores literal values without encryption (#53)
 - docs(readme): in-depth guide to dc load yaml secret configuration
 - docs(readme): explain dc subjects (secrets/services/apps/auto/_dc) + subject cheat sheet; widen secrets row
 - Docs: refresh PROJ-LAYOUT (+layout/web.md), rewrite PROJ-ARCH (+arch/secrets-and-sealing, source-sync, remote-sync, ipc-model, sdk-backends), clean up README — direct to develop (markdown-only).

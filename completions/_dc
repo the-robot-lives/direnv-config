@@ -192,6 +192,7 @@ _dc() {
                   '--from=[read value from a file]:file:_files' \
                   '--stdin[read value from stdin]' \
                   '--encrypted[value is already an encrypted token]' \
+                  '--plain[store the value as literal plaintext (no 🔒 marker)]' \
                   '--yes[skip confirmation]' \
                   '--file=[force destination file]:file:_files' \
                   '1:config name:_dc_configs' \

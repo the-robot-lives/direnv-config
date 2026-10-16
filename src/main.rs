@@ -424,6 +424,10 @@ enum ConfigCmd {
         /// The provided value is already an encrypted 🔒:v1 token
         #[arg(long)]
         encrypted: bool,
+        /// Store the value as literal plaintext — no encryption, no 🔒 marker
+        /// (overwriting an encrypted value also drops its tier marker)
+        #[arg(long, conflicts_with = "encrypted")]
+        plain: bool,
         #[arg(long)]
         yes: bool,
         /// Force the destination file (registered external file or .envrc*)
@@ -536,7 +540,7 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Config { sub } => match sub {
             ConfigCmd::Get { subject, path } => cmd::config::get(&subject, &path),
-            ConfigCmd::Set { subject, path, value, from, stdin, encrypted, yes, file, parents, above, below, auto } => {
+            ConfigCmd::Set { subject, path, value, from, stdin, encrypted, plain, yes, file, parents, above, below, auto } => {
                 let spots = above.is_some() as u8 + below.is_some() as u8 + auto as u8;
                 if spots > 1 {
                     anyhow::bail!("use at most one of --above <PATH>, --below <PATH>, --auto");
@@ -560,6 +564,7 @@ fn main() -> anyhow::Result<()> {
                     from.as_deref(),
                     stdin,
                     encrypted,
+                    plain,
                     yes,
                     file.as_deref(),
                     parents,

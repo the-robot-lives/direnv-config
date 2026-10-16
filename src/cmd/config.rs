@@ -183,10 +183,23 @@ fn existing_tier(lines: &[String], loc: &KeyLoc) -> u8 {
         .unwrap_or(0)
 }
 
-/// Compute the replacement line for a located key.
-pub(crate) fn compute_set_line(loc: &KeyLoc, tier: u8, token: &str) -> String {
+/// Compute the replacement line for a located key. In `plain` mode the value
+/// is stored literally — no 🔒 marker, no encryption (a previously encrypted
+/// value's tier marker is dropped); otherwise the marker + token form.
+pub(crate) fn compute_set_line(loc: &KeyLoc, tier: u8, token: &str, plain: bool) -> String {
     let indent = " ".repeat(loc.indent);
-    format!("{indent}{}: \"{} {}\"", leaf_key(&loc.path), marker(tier), token)
+    let value_field = value_field(tier, token, plain);
+    format!("{indent}{}: \"{value_field}\"", leaf_key(&loc.path))
+}
+
+/// The quoted scalar body for a written value: a bare literal in `plain`
+/// mode, else the `🔒<bangs> token` marked form.
+fn value_field(tier: u8, token: &str, plain: bool) -> String {
+    if plain {
+        token.to_string()
+    } else {
+        format!("{} {}", marker(tier), token)
+    }
 }
 
 /// Splice a single replacement line over a location's key+value range.
@@ -210,9 +223,11 @@ fn errata_compute(
     path: &str,
     tier: u8,
     token: &str,
+    plain: bool,
 ) -> Option<(usize, String)> {
     let leaf = leaf_key(path);
     let parent = path.rsplit_once('.').map(|(p, _)| p);
+    let value_field = value_field(tier, token, plain);
 
     for block in locator::scan_blocks(lines) {
         if block.subject != subject {
@@ -243,18 +258,16 @@ fn errata_compute(
                         }
                     }
                     let line = format!(
-                        "{}{}: \"{} {}\"",
+                        "{}{}: \"{value_field}\"",
                         " ".repeat(child_indent),
-                        leaf,
-                        marker(tier),
-                        token
+                        leaf
                     );
                     return Some((idx, line));
                 }
             }
             None => {
                 // Top-level: insert just before the block terminator.
-                let line = format!("{}: \"{} {}\"", leaf, marker(tier), token);
+                let line = format!("{}: \"{value_field}\"", leaf);
                 return Some((block.body.end, line));
             }
         }
@@ -287,6 +300,7 @@ fn acquire_value(value: Option<&str>, from: Option<&str>, stdin: bool) -> Result
 /// Compute an errata insertion `(index, line)` for a missing leaf in an
 /// external plain-YAML file, mirroring [`errata_compute`] for the extra
 /// subject-indentation level. `spans` covers subjects with empty bodies too.
+#[allow(clippy::too_many_arguments)]
 fn external_errata_compute(
     lines: &[String],
     locs: &[KeyLoc],
@@ -295,10 +309,12 @@ fn external_errata_compute(
     path: &str,
     tier: u8,
     token: &str,
+    plain: bool,
 ) -> Option<(usize, String)> {
     let leaf = leaf_key(path);
     let parent = path.rsplit_once('.').map(|(p, _)| p);
     let subject_locs: Vec<&KeyLoc> = locs.iter().filter(|l| l.subject == subject).collect();
+    let value_field = value_field(tier, token, plain);
 
     match parent {
         Some(p) => {
@@ -324,11 +340,9 @@ fn external_errata_compute(
                 }
             }
             let line = format!(
-                "{}{}: \"{} {}\"",
+                "{}{}: \"{value_field}\"",
                 " ".repeat(ploc.indent + 2),
-                leaf,
-                marker(tier),
-                token
+                leaf
             );
             Some((idx, line))
         }
@@ -343,7 +357,7 @@ fn external_errata_compute(
                 .max()
                 .map(|last| last + 1)
                 .unwrap_or(span.key_line + 1);
-            let line = format!("{}{}: \"{} {}\"", " ".repeat(body_indent), leaf, marker(tier), token);
+            let line = format!("{}{}: \"{value_field}\"", " ".repeat(body_indent), leaf);
             Some((idx, line))
         }
     }
@@ -416,9 +430,9 @@ fn subtree_end(lines: &[String], loc: &KeyLoc, body_end: usize) -> usize {
 /// Compute a `-p` insertion for a path whose parent chain is (partly)
 /// missing: returns `(insert index, chain lines)`. The missing components
 /// nest under the deepest existing ancestor (or the subject's top level);
-/// the leaf carries the 🔒 marker + token exactly like [`errata_compute`].
-/// `body_end` bounds the subject body; `top_indent` is a new top-level
-/// section's indent.
+/// the leaf carries the 🔒 marker + token exactly like [`errata_compute`]
+/// (or, in `plain` mode, the bare literal — no marker). `body_end` bounds
+/// the subject body; `top_indent` is a new top-level section's indent.
 #[allow(clippy::too_many_arguments)]
 fn parents_compute(
     lines: &[String],
@@ -427,6 +441,7 @@ fn parents_compute(
     path: &str,
     tier: u8,
     token: &str,
+    plain: bool,
     body_end: usize,
     top_indent: usize,
     placement: &Placement,
@@ -436,6 +451,7 @@ fn parents_compute(
     let base = prefix.as_ref().map(|p| p.split('.').count()).unwrap_or(0);
     let missing: Vec<&str> = comps[base..].to_vec();
     let head = missing[0];
+    let value_field = value_field(tier, token, plain);
 
     // Anchor + nesting level. When a prefix exists the level is forced (the
     // chain must nest under it); otherwise the anchor's own level defines
@@ -471,7 +487,7 @@ fn parents_compute(
         if i + 1 < missing.len() {
             chain.push(format!("{ind}{c}:"));
         } else {
-            chain.push(format!("{ind}{c}: \"{} {}\"", marker(tier), token));
+            chain.push(format!("{ind}{c}: \"{value_field}\""));
         }
     }
 
@@ -560,6 +576,20 @@ fn redact_for_display(line: &str) -> String {
         return format!("{prefix}**redacted**\"");
     }
     line.to_string()
+}
+
+/// [`redact_for_display`] extended for `--plain` writes: a plaintext value
+/// line carries no `🔒:v1` token for the token-based redactor to match, so
+/// the quoted value is masked positionally instead. Structure-only chain
+/// lines (e.g. `  parent:`) pass through unchanged.
+fn redact_line_for_display(line: &str, plain_value: bool) -> String {
+    if plain_value {
+        if let Some(pos) = line.find(": \"") {
+            return format!("{}: \"**redacted**\"", &line[..pos]);
+        }
+        return line.to_string();
+    }
+    redact_for_display(line)
 }
 
 // ---------------------------------------------------------------------------
@@ -723,6 +753,7 @@ pub fn set(
     from: Option<&str>,
     stdin_flag: bool,
     encrypted: bool,
+    plain: bool,
     yes: bool,
     file: Option<&str>,
     parents: bool,
@@ -750,19 +781,23 @@ pub fn set(
     }
 
     if locs.is_empty() {
-        return set_errata(subject, path, &plaintext, encrypted, yes, forced.as_deref(), parents, placement);
+        return set_errata(subject, path, &plaintext, encrypted, plain, yes, forced.as_deref(), parents, placement);
     }
 
     let loc = &locs[0];
     let mut lines = read_lines(&loc.file)?;
     let tier = existing_tier(&lines, loc);
-    let token = if encrypted {
+    let token = if encrypted || plain {
         plaintext.clone()
     } else {
         crate::crypto::encode_token(&plaintext, tier, &crate::settings::key()?)?
     };
-    let new_line = compute_set_line(loc, tier, &token);
-    let new_display = format!("{}: \"{} **redacted**\"", " ".repeat(loc.indent) + leaf_key(&loc.path), marker(tier));
+    let new_line = compute_set_line(loc, tier, &token, plain);
+    let new_display = if plain {
+        format!("{}: \"**redacted**\"", " ".repeat(loc.indent) + leaf_key(&loc.path))
+    } else {
+        format!("{}: \"{} **redacted**\"", " ".repeat(loc.indent) + leaf_key(&loc.path), marker(tier))
+    };
 
     eprintln!("Update {} {} in {}:{}", subject, path, loc.file.display(), loc.key_line + 1);
     preview(&lines, loc.key_line, if loc.is_block_scalar { loc.value_end } else { loc.key_line }, Some(&new_display));
@@ -786,6 +821,7 @@ fn set_errata(
     path: &str,
     plaintext: &str,
     encrypted: bool,
+    plain: bool,
     yes: bool,
     forced: Option<&Path>,
     parents: bool,
@@ -819,7 +855,7 @@ fn set_errata(
             }
             lines
         };
-        let token = if encrypted {
+        let token = if encrypted || plain {
             plaintext.to_string()
         } else {
             crate::crypto::encode_token(plaintext, 0, &crate::settings::key()?)?
@@ -835,22 +871,22 @@ fn set_errata(
                 };
                 let locs = locator::index_external_lines(&lines, f);
                 let top = span.child_indent.unwrap_or(span.indent + 2);
-                parents_compute(&lines, &locs, subject, path, 0, &token, span.body.end, top, placement)
+                parents_compute(&lines, &locs, subject, path, 0, &token, plain, span.body.end, top, placement)
             } else {
                 let blocks = locator::scan_blocks(&lines);
                 let Some(block) = blocks.iter().find(|b| b.subject == subject) else {
                     continue;
                 };
                 let locs = locator::index_block(block, &lines, Path::new(""));
-                parents_compute(&lines, &locs, subject, path, 0, &token, block.body.end, 0, placement)
+                parents_compute(&lines, &locs, subject, path, 0, &token, plain, block.body.end, 0, placement)
             }
         } else {
             let computed = if is_external {
                 let spans = locator::external_subject_spans(&lines);
                 let locs = locator::index_external_lines(&lines, f);
-                external_errata_compute(&lines, &locs, &spans, subject, path, 0, &token)
+                external_errata_compute(&lines, &locs, &spans, subject, path, 0, &token, plain)
             } else {
-                errata_compute(&lines, subject, path, 0, &token)
+                errata_compute(&lines, subject, path, 0, &token, plain)
             };
             match computed {
                 Some((idx, new_line)) => Ok((idx, vec![new_line])),
@@ -863,12 +899,12 @@ fn set_errata(
         let (idx, new_lines) = computed.map_err(|e| anyhow::anyhow!("{e} (in {})", f.display()))?;
         eprintln!("Insert {subject} {path} into {}:{}", f.display(), idx + 1);
         if new_lines.len() == 1 {
-            let display = redact_for_display(&new_lines[0]);
+            let display = redact_line_for_display(&new_lines[0], plain);
             preview(&lines, idx.saturating_sub(1), idx.saturating_sub(1), Some(&display));
         } else {
             preview(&lines, idx.saturating_sub(1), idx.saturating_sub(1), None);
             for l in &new_lines {
-                eprintln!("  ✚  {}", redact_for_display(l));
+                eprintln!("  ✚  {}", redact_line_for_display(l, plain));
             }
         }
         if !yes && !confirm("Insert this entry?")? {
@@ -1037,7 +1073,7 @@ mod tests {
         let tier = existing_tier(&src, &loc);
         assert_eq!(tier, 1);
         let token = crate::crypto::encode_token("newsecret", tier, &KEY).unwrap();
-        let new_line = compute_set_line(&loc, tier, &token);
+        let new_line = compute_set_line(&loc, tier, &token, false);
         let out = splice_set(&src, &loc, new_line);
 
         // comment + siblings intact
@@ -1057,7 +1093,7 @@ mod tests {
         let loc = locate(&src, "cf", "account_id");
         assert!(loc.is_block_scalar);
         let token = crate::crypto::encode_token("v", 0, &KEY).unwrap();
-        let new_line = compute_set_line(&loc, 0, &token);
+        let new_line = compute_set_line(&loc, 0, &token, false);
         let out = splice_set(&src, &loc, new_line);
         // The 4-line block is gone; zone survives directly after.
         assert!(out.iter().any(|l| l.starts_with("account_id: \"🔒 🔒:v1:")));
@@ -1071,7 +1107,7 @@ mod tests {
             "dc_yaml --no-bump cf <<'YAML'\naccess:\n  client_id: pub\nzone: z\nYAML",
         );
         let token = crate::crypto::encode_token("BANANA", 0, &KEY).unwrap();
-        let (idx, line) = errata_compute(&src, "cf", "access.foobar", 0, &token).unwrap();
+        let (idx, line) = errata_compute(&src, "cf", "access.foobar", 0, &token, false).unwrap();
         // Inserted after access.client_id (index 3), indented 2.
         assert_eq!(idx, 3);
         assert!(line.starts_with("  foobar: \"🔒 🔒:v1:"));
@@ -1086,9 +1122,53 @@ mod tests {
     fn errata_inserts_top_level_before_terminator() {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\naccount_id: 1\nYAML");
         let token = crate::crypto::encode_token("t", 0, &KEY).unwrap();
-        let (idx, line) = errata_compute(&src, "cf", "api_token", 0, &token).unwrap();
+        let (idx, line) = errata_compute(&src, "cf", "api_token", 0, &token, false).unwrap();
         assert_eq!(idx, 2); // the YAML terminator line index
         assert!(line.starts_with("api_token: \"🔒 🔒:v1:"));
+    }
+
+    // ---- --plain (literal, unmarked) writes ----
+
+    #[test]
+    fn set_plain_replaces_encrypted_line_without_marker() {
+        let src = lines(
+            "dc_yaml --no-bump cf <<'YAML'\naccess:\n  client_secret: \"🔒❗ old\"\nzone: z\nYAML",
+        );
+        let loc = locate(&src, "cf", "access.client_secret");
+        let tier = existing_tier(&src, &loc);
+        assert_eq!(tier, 1);
+        let new_line = compute_set_line(&loc, tier, "literal-secret", true);
+        let out = splice_set(&src, &loc, new_line);
+        let line = out.iter().find(|l| l.contains("client_secret")).unwrap();
+        assert_eq!(line, "  client_secret: \"literal-secret\"");
+        assert!(!line.contains(PADLOCK) && !line.contains('❗'), "no marker on a --plain line");
+        assert!(!out.iter().any(|l| l.contains("old")), "stale token gone");
+        assert!(out.iter().any(|l| l == "zone: z"), "siblings intact");
+    }
+
+    #[test]
+    fn errata_plain_insert_has_no_marker() {
+        let src = lines("dc_yaml --no-bump cf <<'YAML'\naccount_id: 1\nYAML");
+        let (idx, line) = errata_compute(&src, "cf", "api_token", 0, "BANANA", true).unwrap();
+        assert_eq!(idx, 2);
+        assert_eq!(line, "api_token: \"BANANA\"");
+    }
+
+    #[test]
+    fn redact_line_for_display_masks_plain_values_and_passes_structure() {
+        // --plain value lines are masked positionally (no 🔒:v1 token to match)
+        assert_eq!(
+            redact_line_for_display("  api_key: \"hunter2\"", true),
+            "  api_key: \"**redacted**\""
+        );
+        // structure-only chain lines pass through
+        assert_eq!(redact_line_for_display("  jev:", true), "  jev:");
+        // encrypted path unchanged (token-bearing lines redacted as before)
+        let tok = crate::crypto::encode_token("shh", 1, &KEY).unwrap();
+        let marked = format!("  k: \"{} {}\"", marker(1), tok);
+        let shown = redact_line_for_display(&marked, false);
+        assert!(shown.contains("**redacted**"));
+        assert!(!shown.contains("shh"));
     }
 
     // ---- atomic write temp hygiene ----
@@ -1197,7 +1277,7 @@ mod tests {
         let loc = locs.iter().find(|l| l.path == "host").expect("host loc");
         let tier = existing_tier(&lines, loc);
         let token = crate::crypto::encode_token("NEWVAL", tier, &KEY).unwrap();
-        let new_line = compute_set_line(loc, tier, &token);
+        let new_line = compute_set_line(loc, tier, &token, false);
         let out = splice_set(&lines, loc, new_line);
 
         assert_eq!(out.len(), 5, "line count unchanged");
@@ -1232,7 +1312,7 @@ mod tests {
         let locs = locator::index_external_lines(&lines, &a);
         let token = crate::crypto::encode_token("v", 0, &KEY).unwrap();
         let (idx, line) =
-            external_errata_compute(&lines, &locs, &spans, "app", "api_key", 0, &token).unwrap();
+            external_errata_compute(&lines, &locs, &spans, "app", "api_key", 0, &token, false).unwrap();
         assert_eq!(idx, 2, "after `host: one` (line 1)");
         assert!(line.starts_with("  api_key: \"🔒 🔒:v1:"));
     }
@@ -1247,7 +1327,7 @@ mod tests {
 
         // Parent path: inserted after db's subtree (comments skipped), indent parent+2.
         let (idx, line) =
-            external_errata_compute(&src, &locs, &spans, "app", "db.port", 0, &token).unwrap();
+            external_errata_compute(&src, &locs, &spans, "app", "db.port", 0, &token, false).unwrap();
         assert_eq!(idx, 4, "after the trailing comment, before `other:`");
         assert!(line.starts_with("    port: \"🔒 🔒:v1:"));
 
@@ -1256,7 +1336,7 @@ mod tests {
         let spans2 = locator::external_subject_spans(&src2);
         let locs2 = locator::index_external_lines(&src2, file);
         let (idx2, line2) =
-            external_errata_compute(&src2, &locs2, &spans2, "boot", "api_key", 0, &token).unwrap();
+            external_errata_compute(&src2, &locs2, &spans2, "boot", "api_key", 0, &token, false).unwrap();
         assert_eq!(idx2, 3, "after `boot:` (line 2, the last line)");
         assert!(line2.starts_with("  api_key: \"🔒 🔒:v1:"));
     }
@@ -1506,7 +1586,7 @@ mod parents_tests {
         let locs = locs_of(&src);
         let tok = token_of("S3cr3t");
         let (idx, chain) =
-            parents_compute(&src, &locs, "cf", "inference.jev.api_key", 0, &tok, 5, 0,
+            parents_compute(&src, &locs, "cf", "inference.jev.api_key", 0, &tok, false, 5, 0,
                             &Placement::Below("sendgrid".into())).unwrap();
         assert_eq!(idx, 3, "after sendgrid's subtree (stripe: comes next)");
         assert_eq!(chain[0], "inference:");
@@ -1524,7 +1604,7 @@ mod parents_tests {
         let locs = locs_of(&src);
         let tok = token_of("v");
         let (idx, _) =
-            parents_compute(&src, &locs, "cf", "a.b.c", 0, &tok, 5, 0,
+            parents_compute(&src, &locs, "cf", "a.b.c", 0, &tok, false, 5, 0,
                             &Placement::Above("stripe".into())).unwrap();
         assert_eq!(idx, 3, "directly before `stripe:`");
     }
@@ -1535,15 +1615,15 @@ mod parents_tests {
         let locs = locs_of(&src);
         let tok = token_of("v");
         // before sendgrid (first sibling)
-        let (idx, _) = parents_compute(&src, &locs, "cf", "aaa.key", 0, &tok, 5, 0,
+        let (idx, _) = parents_compute(&src, &locs, "cf", "aaa.key", 0, &tok, false, 5, 0,
                                        &Placement::Auto).unwrap();
         assert_eq!(idx, 1);
         // between sendgrid and stripe (smoke sorts between them)
-        let (idx, _) = parents_compute(&src, &locs, "cf", "smoke.key", 0, &tok, 5, 0,
+        let (idx, _) = parents_compute(&src, &locs, "cf", "smoke.key", 0, &tok, false, 5, 0,
                                        &Placement::Auto).unwrap();
         assert_eq!(idx, 3);
         // appended at the end, before the terminator
-        let (idx, _) = parents_compute(&src, &locs, "cf", "zzz.key", 0, &tok, 5, 0,
+        let (idx, _) = parents_compute(&src, &locs, "cf", "zzz.key", 0, &tok, false, 5, 0,
                                        &Placement::Auto).unwrap();
         assert_eq!(idx, 5);
     }
@@ -1553,7 +1633,7 @@ mod parents_tests {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\ntop: 1\nYAML\n");
         let locs = locs_of(&src);
         let tok = token_of("v");
-        let (idx, chain) = parents_compute(&src, &locs, "cf", "x.a.b", 0, &tok, 3, 0,
+        let (idx, chain) = parents_compute(&src, &locs, "cf", "x.a.b", 0, &tok, false, 3, 0,
                                            &Placement::Auto).unwrap();
         assert_eq!(idx, 2, "before the YAML terminator");
         assert_eq!(chain[0], "x:");
@@ -1567,17 +1647,17 @@ mod parents_tests {
         let locs = locs_of(&src);
         let tok = token_of("v");
         // jev < kv alphabetically → inserted before kv, nested under inference
-        let (idx, chain) = parents_compute(&src, &locs, "cf", "inference.jev.api_key", 0, &tok, 3, 0,
+        let (idx, chain) = parents_compute(&src, &locs, "cf", "inference.jev.api_key", 0, &tok, false, 3, 0,
                                            &Placement::Auto).unwrap();
         assert_eq!(idx, 2);
         assert_eq!(chain[0], "  jev:");
         assert!(chain[1].starts_with("    api_key: \"🔒 🔒:v1:"));
         // anchor at the wrong level is rejected when a prefix exists
-        let err = parents_compute(&src, &locs, "cf", "inference.jev.api_key", 0, &tok, 3, 0,
+        let err = parents_compute(&src, &locs, "cf", "inference.jev.api_key", 0, &tok, false, 3, 0,
                                   &Placement::Below("inference".into())).unwrap_err();
         assert!(err.to_string().contains("not a sibling"), "{err}");
         // sibling-level anchor under the prefix is honoured
-        let (idx, chain) = parents_compute(&src, &locs, "cf", "inference.alpha.api_key", 0, &tok, 3, 0,
+        let (idx, chain) = parents_compute(&src, &locs, "cf", "inference.alpha.api_key", 0, &tok, false, 3, 0,
                                            &Placement::Below("inference.kv".into())).unwrap();
         assert_eq!(idx, 3, "after kv's subtree");
         assert_eq!(chain[0], "  alpha:");
@@ -1588,7 +1668,7 @@ mod parents_tests {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\ngrp:\n  zed: z\nYAML\n");
         let locs = locs_of(&src);
         let tok = token_of("v");
-        let (idx, chain) = parents_compute(&src, &locs, "cf", "grp.aaa", 0, &tok, 3, 0,
+        let (idx, chain) = parents_compute(&src, &locs, "cf", "grp.aaa", 0, &tok, false, 3, 0,
                                            &Placement::Auto).unwrap();
         assert_eq!(idx, 2, "aaa < zed → before zed");
         assert_eq!(chain.len(), 1);
@@ -1596,11 +1676,22 @@ mod parents_tests {
     }
 
     #[test]
+    fn plain_parents_leaf_has_no_marker() {
+        let src = lines("dc_yaml --no-bump cf <<'YAML'\ngrp:\n  zed: z\nYAML\n");
+        let locs = locs_of(&src);
+        let (idx, chain) = parents_compute(&src, &locs, "cf", "grp.aaa", 0, "S3cr3t", true, 3, 0,
+                                           &Placement::Auto).unwrap();
+        assert_eq!(idx, 2);
+        assert_eq!(chain.len(), 1);
+        assert_eq!(chain[0], "  aaa: \"S3cr3t\"");
+    }
+
+    #[test]
     fn anchor_missing_in_subject_is_a_clear_error() {
         let src = lines(FIXTURE);
         let locs = locs_of(&src);
         let tok = token_of("v");
-        let err = parents_compute(&src, &locs, "cf", "x.y.z", 0, &tok, 5, 0,
+        let err = parents_compute(&src, &locs, "cf", "x.y.z", 0, &tok, false, 5, 0,
                                   &Placement::Below("mailgun".into())).unwrap_err();
         assert!(err.to_string().contains("anchor `mailgun` not found"), "{err}");
     }
@@ -1614,7 +1705,7 @@ mod parents_tests {
         let tok = token_of("v");
         let span = spans.iter().find(|s| s.name == "app").unwrap();
         let top = span.child_indent.unwrap_or(span.indent + 2);
-        let (idx, chain) = parents_compute(&src, &locs, "app", "db.conn.host", 0, &tok,
+        let (idx, chain) = parents_compute(&src, &locs, "app", "db.conn.host", 0, &tok, false,
                                            span.body.end, top,
                                            &Placement::Below("name".into())).unwrap();
         assert_eq!(idx, 2, "after name's subtree (span end)");
