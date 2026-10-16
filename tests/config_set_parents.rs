@@ -159,7 +159,7 @@ fn parents_below_creates_nested_chain_in_envrc() {
     );
     assert_eq!(lines[6], "stripe:");
     assert!(
-        lines.iter().any(|l| *l == "  api_key: \"plain s\""),
+        lines.contains(&"  api_key: \"plain s\""),
         "anchor content clobbered:\n{written}"
     );
 
