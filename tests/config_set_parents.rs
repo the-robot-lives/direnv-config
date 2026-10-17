@@ -447,3 +447,204 @@ fn parents_already_exist_positions_leaf_among_siblings() {
     assert!(lines[2].starts_with("  aaa: \"🔒 🔒:v1:"), "{}", lines[2]);
     assert_eq!(lines[3], "  zed: z");
 }
+
+// ---------------------------------------------------------------------------
+// Full-path creation details: quoted keys and non-mapping intermediates.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parents_chain_nests_inside_quoted_intermediate_section() {
+    let (proj, tmp) = Proj::new("pquot", "meta:\n  unused: 1\n");
+    proj.envrc("dc_yaml --no-bump cf <<'YAML'\n\"anthropic\":\n  model: m\nYAML\n");
+    const SECRET: &str = "quoted-parent-secret";
+    let out = proj.run(
+        &tmp,
+        &[
+            "config",
+            "set",
+            "cf",
+            "anthropic.keys.trr",
+            "--value",
+            SECRET,
+            "--yes",
+            "-p",
+        ],
+        None,
+    );
+    ok(&out, "quoted intermediate -p");
+    assert_no_echo(&out, SECRET);
+    let written = proj.read_envrc();
+    let lines: Vec<&str> = written.lines().collect();
+    // The quoted section is reused — exactly one `anthropic` key, quotes kept.
+    assert_eq!(
+        written.matches("anthropic").count(),
+        1,
+        "duplicate section created:\n{written}"
+    );
+    assert_eq!(lines[1], "\"anthropic\":");
+    assert_eq!(lines[2], "  keys:");
+    assert!(lines[3].starts_with("    trr: \"🔒 🔒:v1:"), "{}", lines[3]);
+    assert_eq!(lines[4], "  model: m", "existing child disturbed:\n{written}");
+
+    // The refreshed store resolves the new key through the quoted section.
+    let get = proj.run(&tmp, &["config", "get", "cf", "anthropic.keys.trr"], None);
+    ok(&get, "config get through quoted section");
+}
+
+#[test]
+fn quoted_leaf_is_updated_in_place_without_duplicates() {
+    let (proj, tmp) = Proj::new("pqleaf", "meta:\n  unused: 1\n");
+    proj.envrc("dc_yaml --no-bump cf <<'YAML'\nanthropic:\n  \"trr\": old\nYAML\n");
+    // Without -p (plain update path)…
+    let out = proj.run(
+        &tmp,
+        &["config", "set", "cf", "anthropic.trr", "--plain", "--value", "V2", "--yes"],
+        None,
+    );
+    ok(&out, "quoted leaf update");
+    // …and with -p (both routes must find the quoted key).
+    let out = proj.run(
+        &tmp,
+        &["config", "set", "cf", "anthropic.trr", "--plain", "--value", "V3", "--yes", "-p"],
+        None,
+    );
+    ok(&out, "quoted leaf update with -p");
+    let written = proj.read_envrc();
+    assert_eq!(
+        written.matches("trr").count(),
+        1,
+        "duplicate leaf created:\n{written}"
+    );
+    assert!(
+        written.contains("  \"trr\": \"V3\""),
+        "quoting lost or value not written:\n{written}"
+    );
+    let get = proj.run(&tmp, &["config", "get", "cf", "anthropic.trr"], None);
+    ok(&get, "config get quoted leaf");
+}
+
+#[test]
+fn scalar_intermediate_refused_and_file_untouched() {
+    let (proj, tmp) = Proj::new("pscal", "meta:\n  unused: 1\n");
+    let fixture = "dc_yaml --no-bump cf <<'YAML'\nanthropic:\n  keys: \"oops-a-string\"\nYAML\n";
+    proj.envrc(fixture);
+    let out = proj.run(
+        &tmp,
+        &[
+            "config", "set", "cf", "anthropic.keys.trr", "--plain", "--value", "V", "--yes", "-p",
+        ],
+        None,
+    );
+    assert!(
+        !out.status.success(),
+        "scalar intermediate must be refused:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("already holds a scalar value"),
+        "clear refusal missing:\n{stderr}"
+    );
+    assert_eq!(
+        proj.read_envrc(),
+        fixture,
+        "file must be byte-identical after refusal"
+    );
+}
+
+#[test]
+fn flow_mapping_intermediate_refused_and_file_untouched() {
+    let (proj, tmp) = Proj::new("pflow", "meta:\n  unused: 1\n");
+    let fixture = "dc_yaml --no-bump cf <<'YAML'\nanthropic:\n  keys: {}\nYAML\n";
+    proj.envrc(fixture);
+    let out = proj.run(
+        &tmp,
+        &[
+            "config", "set", "cf", "anthropic.keys.trr", "--plain", "--value", "V", "--yes", "-p",
+        ],
+        None,
+    );
+    assert!(!out.status.success(), "flow-mapping intermediate must be refused");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("already holds a scalar value"),
+        "clear refusal missing:\n{stderr}"
+    );
+    assert_eq!(proj.read_envrc(), fixture, "file must be untouched");
+}
+
+#[test]
+fn block_scalar_intermediate_refused_and_file_untouched() {
+    let (proj, tmp) = Proj::new("pblock", "meta:\n  unused: 1\n");
+    let fixture =
+        "dc_yaml --no-bump cf <<'YAML'\nanthropic:\n  keys: |\n    line one\nYAML\n";
+    proj.envrc(fixture);
+    let out = proj.run(
+        &tmp,
+        &[
+            "config", "set", "cf", "anthropic.keys.trr", "--plain", "--value", "V", "--yes", "-p",
+        ],
+        None,
+    );
+    assert!(!out.status.success(), "block-scalar intermediate must be refused");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("block-scalar value"),
+        "clear refusal missing:\n{stderr}"
+    );
+    assert_eq!(proj.read_envrc(), fixture, "file must be untouched");
+}
+
+#[test]
+fn null_intermediate_becomes_a_mapping() {
+    let (proj, tmp) = Proj::new("pnull", "meta:\n  unused: 1\n");
+    proj.envrc("dc_yaml --no-bump cf <<'YAML'\nanthropic:\n  keys:\nYAML\n");
+    let out = proj.run(
+        &tmp,
+        &[
+            "config", "set", "cf", "anthropic.keys.trr", "--plain", "--value", "V", "--yes", "-p",
+        ],
+        None,
+    );
+    ok(&out, "null intermediate");
+    let written = proj.read_envrc();
+    let lines: Vec<&str> = written.lines().collect();
+    assert_eq!(lines[2], "  keys:");
+    assert_eq!(lines[3], "    trr: \"V\"");
+    let get = proj.run(&tmp, &["config", "get", "cf", "anthropic.keys.trr"], None);
+    ok(&get, "config get through null-turned-mapping");
+}
+
+#[test]
+fn missing_subject_errors_with_setall_hint() {
+    let (proj, tmp) = Proj::new("psubj", "meta:\n  unused: 1\n");
+    proj.envrc("dc_yaml --no-bump other <<'YAML'\nx: 1\nYAML\n");
+    let out = proj.run(
+        &tmp,
+        &[
+            "config",
+            "set",
+            "defaults",
+            "inference.anthropic.keys.trr",
+            "--plain",
+            "--value",
+            "V",
+            "--yes",
+            "-p",
+        ],
+        None,
+    );
+    assert!(
+        !out.status.success(),
+        "missing subject must fail with a clear error"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("no `dc_yaml … defaults` block"),
+        "subject hint missing:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("dc config setall"),
+        "setall hint missing:\n{stderr}"
+    );
+}

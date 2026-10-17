@@ -443,7 +443,10 @@ enum ConfigCmd {
         /// Force the destination file (registered external file or .envrc*)
         #[arg(long, value_name = "FILE")]
         file: Option<String>,
-        /// Create any missing parent sections of PATH as nested YAML mappings
+        /// Create every missing section of PATH as nested YAML mappings —
+        /// the full missing path is built under the deepest existing
+        /// ancestor (existing sections are reused; a path segment that
+        /// already holds a scalar value is refused)
         #[arg(short = 'p', long)]
         parents: bool,
         /// With -p: insert the new top-most section above this sibling path

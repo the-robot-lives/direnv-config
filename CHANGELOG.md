@@ -1,6 +1,7 @@
 # Changelog — utilities/shell/direnv-config
 
 ## 2026-10-17
+- fix(config): `dc config set -p/--parents` creates the FULL missing path — quoted keys (`"anthropic":`) are now indexed/unquoted for addressing and keep their quoting on rewrite (previously invisible to the locator, so `-p`/plain inserts created duplicate unquoted keys and corrupted the file), and an intermediate that already holds a scalar/flow value (`keys: "x"`, `keys: {}`) or a block scalar is refused with a clear error BEFORE any write (previously nested under the scalar, producing invalid YAML — or, for block scalars, silently appended INTO the string with a green exit); null sections (`keys:`) become mappings; same guard on the no-`-p` errata path (#41)
 - fix(store): plain value replaces a stale 🔒 secrets-layer entry instead of being shadowed by it (#40)
 - feat(config): `dc config set --numeric` / `--bool` for typed values; plain values shown unredacted in previews (#39); README examples
 - fix(tests): clippy -D warnings in config_set_parents (#38)

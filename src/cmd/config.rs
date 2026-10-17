@@ -183,14 +183,15 @@ fn existing_tier(lines: &[String], loc: &KeyLoc) -> u8 {
         .unwrap_or(0)
 }
 
-/// Compute the replacement line for a located key. In `plain` mode the value
-/// is stored literally — no 🔒 marker, no encryption (a previously encrypted
-/// value's tier marker is dropped); in `numeric`/`bool` mode it is written as
-/// a bare YAML number/boolean (also unmarked); otherwise the marker + token
-/// form.
+/// Compute the replacement line for a located key. The key is written back
+/// exactly as it was found (`loc.raw_key`, so quoted keys keep their quotes).
+/// In `plain` mode the value is stored literally — no 🔒 marker, no encryption
+/// (a previously encrypted value's tier marker is dropped); in
+/// `numeric`/`bool` mode it is written as a bare YAML number/boolean (also
+/// unmarked); otherwise the marker + token form.
 pub(crate) fn compute_set_line(loc: &KeyLoc, tier: u8, token: &str, mode: ValueMode) -> String {
     let indent = " ".repeat(loc.indent);
-    format!("{indent}{}: {}", leaf_key(&loc.path), value_field(tier, token, mode))
+    format!("{indent}{}: {}", loc.raw_key, value_field(tier, token, mode))
 }
 
 /// How `dc config set` renders the value it writes.
@@ -268,7 +269,7 @@ fn errata_compute(
     tier: u8,
     token: &str,
     mode: ValueMode,
-) -> Option<(usize, String)> {
+) -> Result<Option<(usize, String)>> {
     let leaf = leaf_key(path);
     let parent = path.rsplit_once('.').map(|(p, _)| p);
     let value_field = value_field(tier, token, mode);
@@ -281,6 +282,7 @@ fn errata_compute(
         match parent {
             Some(p) => {
                 if let Some(ploc) = locs.iter().find(|l| l.path == p) {
+                    ensure_extendable(lines, ploc, p)?;
                     let child_indent = ploc.indent + 2;
                     // Find end of the parent's subtree.
                     let mut idx = if ploc.is_block_scalar {
@@ -307,17 +309,17 @@ fn errata_compute(
                         leaf,
                         value_field
                     );
-                    return Some((idx, line));
+                    return Ok(Some((idx, line)));
                 }
             }
             None => {
                 // Top-level: insert just before the block terminator.
                 let line = format!("{}: {}", leaf, value_field);
-                return Some((block.body.end, line));
+                return Ok(Some((block.body.end, line)));
             }
         }
     }
-    None
+    Ok(None)
 }
 
 fn acquire_value(value: Option<&str>, from: Option<&str>, stdin: bool) -> Result<String> {
@@ -355,7 +357,7 @@ fn external_errata_compute(
     tier: u8,
     token: &str,
     mode: ValueMode,
-) -> Option<(usize, String)> {
+) -> Result<Option<(usize, String)>> {
     let leaf = leaf_key(path);
     let parent = path.rsplit_once('.').map(|(p, _)| p);
     let subject_locs: Vec<&KeyLoc> = locs.iter().filter(|l| l.subject == subject).collect();
@@ -363,8 +365,13 @@ fn external_errata_compute(
 
     match parent {
         Some(p) => {
-            let span = spans.iter().find(|s| s.name == subject)?;
-            let ploc = subject_locs.iter().find(|l| l.path == p)?;
+            let Some(span) = spans.iter().find(|s| s.name == subject) else {
+                return Ok(None);
+            };
+            let Some(ploc) = subject_locs.iter().find(|l| l.path == p) else {
+                return Ok(None);
+            };
+            ensure_extendable(lines, ploc, p)?;
             // Find the end of the parent's subtree (bounded by the subject's body).
             let mut idx = if ploc.is_block_scalar {
                 ploc.value_end + 1
@@ -390,12 +397,14 @@ fn external_errata_compute(
                 leaf,
                 value_field
             );
-            Some((idx, line))
+            Ok(Some((idx, line)))
         }
         None => {
             // Top-level within the subject body: insert after its last key
             // (or right after the subject line for an empty body).
-            let span = spans.iter().find(|s| s.name == subject)?;
+            let Some(span) = spans.iter().find(|s| s.name == subject) else {
+                return Ok(None);
+            };
             let body_indent = span.child_indent.unwrap_or(span.indent + 2);
             let idx = subject_locs
                 .iter()
@@ -404,7 +413,7 @@ fn external_errata_compute(
                 .map(|last| last + 1)
                 .unwrap_or(span.key_line + 1);
             let line = format!("{}{}: {}", " ".repeat(body_indent), leaf, value_field);
-            Some((idx, line))
+            Ok(Some((idx, line)))
         }
     }
 }
@@ -473,6 +482,27 @@ fn subtree_end(lines: &[String], loc: &KeyLoc, body_end: usize) -> usize {
     idx
 }
 
+/// A `-p`/errata chain may only nest under an existing section that is open
+/// for children: a mapping (a key with nested keys) or a null scalar (empty
+/// inline value, optionally with a trailing comment). A key that already
+/// carries a scalar / flow value (`key: "v"`, `key: {}`, `key: |`) cannot
+/// gain nested children — refuse before anything is written.
+fn ensure_extendable(lines: &[String], loc: &KeyLoc, path: &str) -> Result<()> {
+    if loc.is_block_scalar {
+        bail!(
+            "`{path}` already holds a block-scalar value — it cannot gain nested children; edit the file directly"
+        );
+    }
+    let line = &lines[loc.key_line];
+    let rest = line.split_once(':').map(|x| x.1.trim()).unwrap_or("");
+    if rest.is_empty() || rest.starts_with('#') {
+        return Ok(()); // mapping or null — open for children
+    }
+    bail!(
+        "`{path}` already holds a scalar value (`{rest}`) — it cannot gain nested children; edit the file directly"
+    );
+}
+
 /// Compute a `-p` insertion for a path whose parent chain is (partly)
 /// missing: returns `(insert index, chain lines)`. The missing components
 /// nest under the deepest existing ancestor (or the subject's top level);
@@ -499,6 +529,13 @@ fn parents_compute(
     let missing: Vec<&str> = comps[base..].to_vec();
     let head = missing[0];
     let value_field = value_field(tier, token, mode);
+
+    // The chain must be able to nest under the deepest existing ancestor:
+    // refuse (before any write) when that key already holds a scalar value.
+    if let Some(p) = &prefix {
+        let ploc = locs.iter().find(|l| &l.path == p).unwrap();
+        ensure_extendable(lines, ploc, p)?;
+    }
 
     // Anchor + nesting level. When a prefix exists the level is forced (the
     // chain must nest under it); otherwise the anchor's own level defines
@@ -648,7 +685,7 @@ pub(crate) fn write_sentinel(subject: &str, path: &str) -> Result<bool> {
         return Ok(false);
     };
     let lines = read_lines(&loc.file)?;
-    let new_line = format!("{}{}: \"⛔\"", " ".repeat(loc.indent), leaf_key(&loc.path));
+    let new_line = format!("{}{}: \"⛔\"", " ".repeat(loc.indent), loc.raw_key);
     let out = splice_set(&lines, loc, new_line);
     write_lines(&loc.file, &out)?;
     Ok(true)
@@ -862,14 +899,14 @@ pub fn set(
     let new_display = match mode {
         ValueMode::Encrypt => format!(
             "{}: \"{} **redacted**\"",
-            " ".repeat(loc.indent) + leaf_key(&loc.path),
+            " ".repeat(loc.indent) + &loc.raw_key,
             marker(tier)
         ),
         // Plain/numeric/bool values are shown unredacted — the user chose to
         // store them in the open, so the preview must match the file.
         ValueMode::Plain | ValueMode::Numeric | ValueMode::Bool => format!(
             "{}: {}",
-            " ".repeat(loc.indent) + leaf_key(&loc.path),
+            " ".repeat(loc.indent) + &loc.raw_key,
             value_field(tier, &token, mode)
         ),
     };
@@ -963,7 +1000,7 @@ fn set_errata(
             } else {
                 errata_compute(&lines, subject, path, 0, &token, mode)
             };
-            match computed {
+            match computed? {
                 Some((idx, new_line)) => Ok((idx, vec![new_line])),
                 None => bail!(
                     "subject `{subject}` exists in {} but parent of `{path}` was not found — pass -p/--parents (with --below <PATH>/--above <PATH>/--auto) or use `dc config setall`",
@@ -1182,7 +1219,7 @@ mod tests {
             "dc_yaml --no-bump cf <<'YAML'\naccess:\n  client_id: pub\nzone: z\nYAML",
         );
         let token = crate::crypto::encode_token("BANANA", 0, &KEY).unwrap();
-        let (idx, line) = errata_compute(&src, "cf", "access.foobar", 0, &token, ValueMode::Encrypt).unwrap();
+        let (idx, line) = errata_compute(&src, "cf", "access.foobar", 0, &token, ValueMode::Encrypt).unwrap().unwrap();
         // Inserted after access.client_id (index 3), indented 2.
         assert_eq!(idx, 3);
         assert!(line.starts_with("  foobar: \"🔒 🔒:v1:"));
@@ -1197,7 +1234,7 @@ mod tests {
     fn errata_inserts_top_level_before_terminator() {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\naccount_id: 1\nYAML");
         let token = crate::crypto::encode_token("t", 0, &KEY).unwrap();
-        let (idx, line) = errata_compute(&src, "cf", "api_token", 0, &token, ValueMode::Encrypt).unwrap();
+        let (idx, line) = errata_compute(&src, "cf", "api_token", 0, &token, ValueMode::Encrypt).unwrap().unwrap();
         assert_eq!(idx, 2); // the YAML terminator line index
         assert!(line.starts_with("api_token: \"🔒 🔒:v1:"));
     }
@@ -1224,7 +1261,7 @@ mod tests {
     #[test]
     fn errata_plain_insert_has_no_marker() {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\naccount_id: 1\nYAML");
-        let (idx, line) = errata_compute(&src, "cf", "api_token", 0, "BANANA", ValueMode::Plain).unwrap();
+        let (idx, line) = errata_compute(&src, "cf", "api_token", 0, "BANANA", ValueMode::Plain).unwrap().unwrap();
         assert_eq!(idx, 2);
         assert_eq!(line, "api_token: \"BANANA\"");
     }
@@ -1266,7 +1303,7 @@ mod tests {
     #[test]
     fn numeric_leaf_writes_unquoted_scalar() {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\nfoo:\n  bar:\n    bop: 2\nYAML\n");
-        let (idx, line) = errata_compute(&src, "cf", "foo.bar.bip", 0, "4", ValueMode::Numeric).unwrap();
+        let (idx, line) = errata_compute(&src, "cf", "foo.bar.bip", 0, "4", ValueMode::Numeric).unwrap().unwrap();
         assert_eq!(idx, 4, "after bop, before the terminator");
         assert_eq!(line, "    bip: 4", "numeric leaves are bare scalars — no quotes, no marker");
         // overwrite path: an existing encrypted line becomes a bare number
@@ -1297,7 +1334,7 @@ mod tests {
     fn bool_leaf_writes_unquoted_normalized_scalar() {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\nfoo:\n  bar:\n    bip: \"4\"\nYAML\n");
         // set() normalizes via validate_bool before these helpers run.
-        let (idx, line) = errata_compute(&src, "cf", "foo.bar.flag", 0, "true", ValueMode::Bool).unwrap();
+        let (idx, line) = errata_compute(&src, "cf", "foo.bar.flag", 0, "true", ValueMode::Bool).unwrap().unwrap();
         assert_eq!(idx, 4);
         assert_eq!(line, "    flag: true", "bool leaves are lowercase bare scalars");
         // overwrite path: an existing quoted line becomes a bare boolean
@@ -1447,7 +1484,7 @@ mod tests {
         let locs = locator::index_external_lines(&lines, &a);
         let token = crate::crypto::encode_token("v", 0, &KEY).unwrap();
         let (idx, line) =
-            external_errata_compute(&lines, &locs, &spans, "app", "api_key", 0, &token, ValueMode::Encrypt).unwrap();
+            external_errata_compute(&lines, &locs, &spans, "app", "api_key", 0, &token, ValueMode::Encrypt).unwrap().unwrap();
         assert_eq!(idx, 2, "after `host: one` (line 1)");
         assert!(line.starts_with("  api_key: \"🔒 🔒:v1:"));
     }
@@ -1462,7 +1499,7 @@ mod tests {
 
         // Parent path: inserted after db's subtree (comments skipped), indent parent+2.
         let (idx, line) =
-            external_errata_compute(&src, &locs, &spans, "app", "db.port", 0, &token, ValueMode::Encrypt).unwrap();
+            external_errata_compute(&src, &locs, &spans, "app", "db.port", 0, &token, ValueMode::Encrypt).unwrap().unwrap();
         assert_eq!(idx, 4, "after the trailing comment, before `other:`");
         assert!(line.starts_with("    port: \"🔒 🔒:v1:"));
 
@@ -1471,7 +1508,7 @@ mod tests {
         let spans2 = locator::external_subject_spans(&src2);
         let locs2 = locator::index_external_lines(&src2, file);
         let (idx2, line2) =
-            external_errata_compute(&src2, &locs2, &spans2, "boot", "api_key", 0, &token, ValueMode::Encrypt).unwrap();
+            external_errata_compute(&src2, &locs2, &spans2, "boot", "api_key", 0, &token, ValueMode::Encrypt).unwrap().unwrap();
         assert_eq!(idx2, 3, "after `boot:` (line 2, the last line)");
         assert!(line2.starts_with("  api_key: \"🔒 🔒:v1:"));
     }
@@ -1858,5 +1895,72 @@ mod parents_tests {
         assert_eq!(chain[0], "  db:");
         assert_eq!(chain[1], "    conn:");
         assert!(chain[2].starts_with("      host: \"🔒 🔒:v1:"));
+    }
+
+    // -- full-path details: quoted keys, non-mapping intermediates ----------
+
+    #[test]
+    fn quoted_keys_are_indexed_unquoted_with_raw_text_preserved() {
+        let src = lines("dc_yaml --no-bump cf <<'YAML'\n\"anthropic\":\n  \"trr\": old\nYAML\n");
+        let locs = locs_of(&src);
+        let section = locs.iter().find(|l| l.path == "anthropic").expect("quoted section indexed");
+        assert_eq!(section.raw_key, "\"anthropic\"");
+        let leaf = locs.iter().find(|l| l.path == "anthropic.trr").expect("quoted leaf indexed");
+        assert_eq!(leaf.raw_key, "\"trr\"");
+        // Rewrites keep the quotes.
+        let new_line = compute_set_line(leaf, 0, "tok", ValueMode::Plain);
+        assert_eq!(new_line, "  \"trr\": \"tok\"");
+    }
+
+    #[test]
+    fn chain_nests_inside_quoted_intermediate_section() {
+        let src = lines("dc_yaml --no-bump cf <<'YAML'\n\"anthropic\":\n  model: m\nYAML\n");
+        let locs = locs_of(&src);
+        let tok = token_of("v");
+        // keys < model alphabetically → chain inserted before the model child
+        let (idx, chain) = parents_compute(&src, &locs, "cf", "anthropic.keys.trr", 0, &tok,
+                                           ValueMode::Encrypt, 3, 0, &Placement::Auto).unwrap();
+        assert_eq!(idx, 2);
+        assert_eq!(chain[0], "  keys:");
+        assert!(chain[1].starts_with("    trr: \"🔒 🔒:v1:"));
+    }
+
+    #[test]
+    fn scalar_intermediate_chain_is_refused() {
+        let src = lines("dc_yaml --no-bump cf <<'YAML'\ngrp:\n  keys: \"v\"\nYAML\n");
+        let locs = locs_of(&src);
+        let tok = token_of("v");
+        let err = parents_compute(&src, &locs, "cf", "grp.keys.trr", 0, &tok, ValueMode::Encrypt, 3, 0,
+                                  &Placement::Auto).unwrap_err();
+        assert!(err.to_string().contains("already holds a scalar value"), "{err}");
+    }
+
+    #[test]
+    fn block_scalar_intermediate_chain_is_refused() {
+        let src = lines("dc_yaml --no-bump cf <<'YAML'\ngrp:\n  keys: |\n    text\nYAML\n");
+        let locs = locs_of(&src);
+        let tok = token_of("v");
+        let err = parents_compute(&src, &locs, "cf", "grp.keys.trr", 0, &tok, ValueMode::Encrypt, 4, 0,
+                                  &Placement::Auto).unwrap_err();
+        assert!(err.to_string().contains("block-scalar value"), "{err}");
+    }
+
+    #[test]
+    fn null_intermediate_chain_extends_into_mapping() {
+        let src = lines("dc_yaml --no-bump cf <<'YAML'\ngrp:\n  keys:\nYAML\n");
+        let locs = locs_of(&src);
+        let tok = token_of("v");
+        let (idx, chain) = parents_compute(&src, &locs, "cf", "grp.keys.trr", 0, &tok,
+                                           ValueMode::Encrypt, 3, 0, &Placement::Auto).unwrap();
+        assert_eq!(idx, 3, "right after the null key");
+        assert_eq!(chain.len(), 1);
+        assert!(chain[0].starts_with("    trr: \"🔒 🔒:v1:"));
+    }
+
+    #[test]
+    fn errata_under_scalar_parent_is_refused() {
+        let src = lines("dc_yaml --no-bump cf <<'YAML'\ngrp:\n  keys: \"v\"\nYAML\n");
+        let err = errata_compute(&src, "cf", "grp.keys.trr", 0, "tok", ValueMode::Plain).unwrap_err();
+        assert!(err.to_string().contains("already holds a scalar value"), "{err}");
     }
 }
