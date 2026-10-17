@@ -105,7 +105,11 @@ impl Proj {
             "dc encrypt failed:\n{}",
             String::from_utf8_lossy(&out.stderr)
         );
-        String::from_utf8_lossy(&out.stdout).trim().to_string()
+        // dc encrypt prints the bare token wrapped in display quotes.
+        String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .trim_matches('"')
+            .to_string()
     }
 }
 
