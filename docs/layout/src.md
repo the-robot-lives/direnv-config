@@ -8,8 +8,9 @@ src/
 │   ├── bat.rs              #   dc bat — browse/search config entries, secrets masked
 │   ├── bump.rs             #   dc bump — increment store version
 │   ├── compare.rs          #   dc compare — compare local secret vs target URI (no-leak)
-│   ├── config.rs           #   dc config get/set/setall — edit secrets in source .envrc* files
+│   ├── config.rs           #   dc config get/set/setall — edit values in source .envrc* and dc-loaded files (-p builds missing parents)
 │   ├── decrypt.rs          #   dc decrypt — decrypt secret values
+│   ├── emit.rs             #   dc emit — export store back to loadable YAML files (inverse of dc load)
 │   ├── encrypt.rs          #   dc encrypt — encrypt secret values
 │   ├── env.rs              #   dc env — emit resolved environment exports
 │   ├── gen.rs              #   dc gen — generate values (passwords etc.)
@@ -19,11 +20,13 @@ src/
 │   ├── init.rs             #   dc init — initialize a store
 │   ├── keys.rs             #   dc keys — external lockable key file (status/migrate/lock/unlock)
 │   ├── list.rs             #   dc list — list stores/configs
+│   ├── load.rs             #   dc load — ingest external YAML file(s) into a store
 │   ├── mod.rs              #   Subcommand registry
 │   ├── prune.rs            #   dc prune — remove stale store state
 │   ├── purge.rs            #   dc purge — delete store state
 │   ├── push.rs             #   dc push — push secret to infisical:// or kubernetes:// target
-│   ├── secrets.rs          #   dc secrets — secret listing/operations
+│   ├── seal.rs             #   dc seal — interactive/headless encrypt-decrypt selector over project-scope sources
+│   ├── secrets.rs          #   dc secrets — secret listing/operations with origin annotation
 │   ├── set.rs              #   dc set — write a config value
 │   ├── status.rs           #   dc status — store status report
 │   ├── unset.rs            #   dc unset — remove a config value

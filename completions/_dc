@@ -91,6 +91,10 @@ _dc() {
             '--reveal[decrypt and print an encrypted secret value]' \
             '--clippy[decrypt and copy to clipboard (macOS)]' \
             '--reveal-restricted[decrypt a shadowed/restricted secret]' \
+            '--keys[print structure with leaf values redacted to markers]' \
+            '--redact[alias for --keys]' \
+            '--flat[with --keys: one dotted path per leaf instead of YAML]' \
+            '--paths[alias for --flat]' \
             '1:config name:_dc_configs' \
             '2:path:' && ret=0
           ;;
@@ -195,6 +199,9 @@ _dc() {
                   '--from=[read value from a file]:file:_files' \
                   '--stdin[read value from stdin]' \
                   '--encrypted[value is already an encrypted token]' \
+                  '--plain[store the value as literal plaintext (no 🔒 marker)]' \
+                  '--numeric[store the value as an unquoted YAML number (implies plaintext)]' \
+                  '--bool[store the value as an unquoted YAML boolean (implies plaintext)]' \
                   '--yes[skip confirmation]' \
                   '--file=[force destination file]:file:_files' \
                   '1:config name:_dc_configs' \
@@ -264,7 +271,13 @@ _dc() {
                   '--from=[read value from a file]:file:_files' \
                   '--stdin[read value from stdin]' \
                   '--encrypted[value is already an encrypted token]' \
+                  '--plain[store the value as a literal, unencrypted]' \
+                  '--numeric[store the value as an unquoted YAML number]' \
+                  '--bool[store the value as an unquoted YAML boolean]' \
                   '--yes[skip confirmation]' \
+                  '--generate=[generate a fresh secret of KIND instead of reading a value]:kind:(password hex base64 base64url elixir secret-key-base uuid rsa)' \
+                  '--length=[length for --generate (chars for password/elixir, bytes for hex/base64/base64url)]:n:' \
+                  '--if-missing[with --generate: skip when the leaf already has a value]' \
                   '1:name:' && ret=0
                 ;;
             esac

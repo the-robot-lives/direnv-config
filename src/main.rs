@@ -2,6 +2,7 @@ mod audit;
 mod cmd;
 mod crypto;
 mod envrc;
+mod generate;
 mod infisical;
 mod keys;
 mod kube;
@@ -14,7 +15,7 @@ mod store;
 mod target;
 mod yaml;
 
-use clap::{Parser, Subcommand};
+use clap::{ArgGroup, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "dc", version, about = "YAML-backed configuration layer for direnv")]
@@ -73,7 +74,10 @@ enum Commands {
         /// Static default if all sources miss (lower priority than --auto)
         #[arg(long, value_name = "VALUE")]
         default: Option<String>,
-        /// Decrypt and print an encrypted secret value (audited)
+        /// Decrypt and print an encrypted secret value (audited); on a
+        /// SECTION path, decrypt every encrypted leaf in the subtree
+        /// (audited per leaf; output is the subtree YAML — --raw is a
+        /// no-op there; without --reveal a section is printed unchanged)
         #[arg(long)]
         reveal: bool,
         /// Decrypt and copy the value to the clipboard instead of stdout (audited, macOS)
@@ -82,6 +86,17 @@ enum Commands {
         /// Decrypt a ⛔ shadowed/restricted secret (stricter than --reveal, audited)
         #[arg(long)]
         reveal_restricted: bool,
+        /// Print the YAML structure of the subject/section with every leaf
+        /// VALUE replaced by a marker — 🔒 encrypted leaf, <set> non-empty
+        /// plaintext, <empty> empty/null. No value or ciphertext is ever
+        /// printed and no decryption happens (works with no key available);
+        /// a scalar path prints `path: <marker>`
+        #[arg(long, alias = "redact", conflicts_with_all = ["reveal", "raw", "clippy", "reveal_restricted"])]
+        keys: bool,
+        /// With --keys: print one dotted path per leaf
+        /// (`subject.a.b[i]<TAB>marker`) instead of YAML
+        #[arg(long, alias = "paths", requires = "keys")]
+        flat: bool,
     },
     /// Generate a random secret (encrypted by default)
     Gen {
@@ -192,10 +207,15 @@ enum Commands {
         #[arg(long)]
         hard: bool,
     },
-    /// List secret key names per config
+    /// List every key name in scope for this project (merged across .envrc*
+    /// dc_yaml blocks, registered external files, and store layers) — values
+    /// are never printed
     Secrets {
         #[arg(long)]
         json: bool,
+        /// Annotate each key with its source(s) (`file:line` or `store:<subject>/<layer>`)
+        #[arg(long)]
+        sources: bool,
     },
     /// Browse/search config entries with secrets masked (pipes to bat if available)
     Bat {
@@ -277,6 +297,82 @@ enum Commands {
         #[command(subcommand)]
         sub: KeysCmd,
     },
+    /// Emit a loadable YAML secret file from the store's subjects (the inverse
+    /// of `dc load`). Values are never printed; output paths must be covered
+    /// by .gitignore unless --force. 🔒 tokens re-emit byte-identical.
+    Emit {
+        /// Output file (default secrets.dc.yaml); layer variants gain
+        /// `.<layer>.yaml`, special subjects (`_dc`, `auto`) their own files
+        #[arg(long, value_name = "FILE")]
+        output: Option<String>,
+        /// Only emit these subject(s) (repeatable)
+        #[arg(long, value_name = "SUBJECT")]
+        subject: Vec<String>,
+        /// Print a summary (subject/key counts, target paths) without writing
+        #[arg(long)]
+        dry_run: bool,
+        /// Write even when the target is git-tracked or not .gitignore-covered
+        #[arg(long)]
+        force: bool,
+    },
+    /// Encryption inventory + in-place (un)seal over project-scope sources.
+    /// Interactive when stdin is a tty; store layer files are never rewritten.
+    // Parser-level mutual exclusion: the four action flags are two groups
+    // (encrypt / decrypt) that conflict with each other, so contradictory
+    // combinations die at the parser with usage help (the cmd::seal check
+    // stays as a runtime guard for direct construction).
+    #[command(group(
+        ArgGroup::new("seal_encrypt_action")
+            .args(["encrypt", "encrypt_all_plain"])
+            .conflicts_with("seal_decrypt_action")
+    ))]
+    #[command(group(
+        ArgGroup::new("seal_decrypt_action")
+            .args(["decrypt", "decrypt_all"])
+    ))]
+    Seal {
+        /// Print the inventory (key | file:line | state) and exit
+        #[arg(long)]
+        list: bool,
+        /// Machine-readable JSON (with --list)
+        #[arg(long)]
+        json: bool,
+        /// Non-interactive mode: requires an --encrypt/--decrypt action
+        #[arg(long)]
+        headless: bool,
+        /// Headless: seal these key(s) (`subject.path`, repeatable)
+        #[arg(long = "encrypt", value_name = "KEY", num_args = 1..)]
+        encrypt: Vec<String>,
+        /// Headless: seal every plain entry in scope
+        #[arg(long)]
+        encrypt_all_plain: bool,
+        /// Headless: unseal these key(s) (`subject.path`, repeatable)
+        #[arg(long = "decrypt", value_name = "KEY", num_args = 1..)]
+        decrypt: Vec<String>,
+        /// Headless: unseal every sealed entry in scope
+        #[arg(long)]
+        decrypt_all: bool,
+        /// Selector: keep only entries whose leaf key name matches this
+        /// case-insensitive wildcard — `*` = any run of characters (incl.
+        /// none), `?` = exactly one, all else literal; the whole leaf name
+        /// (last dot-segment, e.g. `db_password` of `app.db.password`) must
+        /// match. Repeatable (OR). Applies to every mode; --except wins.
+        #[arg(long = "match", value_name = "PAT")]
+        r#match: Vec<String>,
+        /// Selector: drop entries whose leaf key name matches this wildcard
+        /// (same syntax as --match). Repeatable (OR); always wins over --match.
+        #[arg(long, value_name = "PAT")]
+        except: Vec<String>,
+        /// Restrict scope to entries in this file
+        #[arg(long, value_name = "FILE")]
+        file: Option<String>,
+        /// Preview the changes without writing
+        #[arg(long)]
+        dry_run: bool,
+        /// Apply the changes without prompting
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -354,11 +450,77 @@ enum ConfigCmd {
         /// The provided value is already an encrypted 🔒:v1 token
         #[arg(long)]
         encrypted: bool,
+        /// Store the value as literal plaintext — no encryption, no 🔒 marker
+        /// (overwriting an encrypted value also drops its tier marker)
+        #[arg(long, conflicts_with = "encrypted")]
+        plain: bool,
+        /// Store the value as an unquoted YAML number (e.g. `bip: 4`) —
+        /// implies plaintext, no marker (numbers are never encrypted;
+        /// rejects non-finite/non-numeric input)
+        #[arg(long, conflicts_with = "encrypted")]
+        numeric: bool,
+        /// Store the value as an unquoted YAML boolean (`flag: true`) —
+        /// implies plaintext, no marker; accepts `true`/`false`
+        /// case-insensitively, rejects everything else
+        #[arg(long = "bool", conflicts_with_all = ["encrypted", "numeric"])]
+        bool_flag: bool,
         #[arg(long)]
         yes: bool,
         /// Force the destination file (registered external file or .envrc*)
         #[arg(long, value_name = "FILE")]
         file: Option<String>,
+        /// Create every missing section of PATH as nested YAML mappings —
+        /// the full missing path is built under the deepest existing
+        /// ancestor (existing sections are reused; a path segment that
+        /// already holds a scalar value is refused)
+        #[arg(short = 'p', long)]
+        parents: bool,
+        /// With -p: insert the new top-most section above this sibling path
+        #[arg(long, value_name = "PATH")]
+        above: Option<String>,
+        /// With -p: insert the new top-most section below this sibling path
+        #[arg(long, value_name = "PATH")]
+        below: Option<String>,
+        /// With -p: place the new top-most section alphabetically among its
+        /// siblings (the default with -p)
+        #[arg(long)]
+        auto: bool,
+        /// Generate a fresh secret of KIND and store it instead of reading a
+        /// value (mutually exclusive with --value/--from/--stdin and with
+        /// --encrypted/--numeric/--bool; encrypted at rest by default,
+        /// respects --plain, -p and placement). KIND is one of:
+        ///
+        ///   password      — URL/shell-safe alphanumeric [A-Za-z0-9]; default 32 chars
+        ///
+        ///   hex           — lowercase hex; default 32 bytes → 64 chars; N counts bytes
+        ///
+        ///   base64        — standard base64, '='-padded; default 32 bytes; N counts bytes
+        ///
+        ///   base64url     — URL-safe base64, unpadded; default 32 bytes; N counts bytes
+        ///
+        ///   elixir        — `mix phx.gen.secret` equivalent: standard-base64 alphabet, no padding, truncated to exactly N chars; default 64, minimum 32 (alias: secret-key-base)
+        ///
+        ///   uuid          — random v4 UUID
+        ///
+        ///   rsa           — 2048-bit PKCS#1 PEM private key, base64-encoded onto one line (decode with `base64 -d`); no --length
+        ///
+        /// The generated value is never printed — the output line says
+        /// `generated <kind> (<n> chars) → <subject> <path>`.
+        #[arg(
+            long,
+            value_name = "KIND",
+            conflicts_with_all = ["value", "from", "stdin", "encrypted", "numeric", "bool_flag"]
+        )]
+        generate: Option<String>,
+        /// Length for --generate (defaults per kind: password/elixir count
+        /// characters — elixir floors at 32; hex/base64/base64url count
+        /// bytes; rejected for uuid/rsa)
+        #[arg(long, value_name = "N", requires = "generate")]
+        length: Option<usize>,
+        /// With --generate: skip when the leaf already holds a non-empty
+        /// value — output says `skipped` instead of `generated`
+        #[arg(long, requires = "generate")]
+        if_missing: bool,
     },
     /// Insert a YAML section (from stdin) above/below an anchor entry
     Setall {
@@ -393,8 +555,8 @@ fn main() -> anyhow::Result<()> {
         Commands::Load { files, layer, replace, replace_key, if_missing, no_bump } => {
             cmd::load::run(&files, layer.as_deref(), replace, replace_key.as_deref(), if_missing, no_bump)
         }
-        Commands::Get { name, path, raw, r#override, fallback, auto, default, reveal, clippy, reveal_restricted } => {
-            cmd::get::run(&name, path.as_deref(), raw, r#override.as_deref(), fallback.as_deref(), &auto, default.as_deref(), reveal, clippy, reveal_restricted)
+        Commands::Get { name, path, raw, r#override, fallback, auto, default, reveal, clippy, reveal_restricted, keys, flat } => {
+            cmd::get::run(&name, path.as_deref(), raw, r#override.as_deref(), fallback.as_deref(), &auto, default.as_deref(), reveal, clippy, reveal_restricted, keys, flat)
         }
         Commands::Gen { hex, base64, length, raw, tier } => {
             cmd::gen::run(hex, base64, length, raw, tier)
@@ -429,8 +591,8 @@ fn main() -> anyhow::Result<()> {
         Commands::List => {
             cmd::list::run()
         }
-        Commands::Secrets { json } => {
-            cmd::secrets::run(json)
+        Commands::Secrets { json, sources } => {
+            cmd::secrets::run(json, sources)
         }
         Commands::Bat { subject, scope, all, reveal, flat, filter_key, filter_value, exclude_key, exclude_value } => {
             cmd::bat::run(
@@ -453,7 +615,23 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Config { sub } => match sub {
             ConfigCmd::Get { subject, path } => cmd::config::get(&subject, &path),
-            ConfigCmd::Set { subject, path, value, from, stdin, encrypted, yes, file } => {
+            ConfigCmd::Set { subject, path, value, from, stdin, encrypted, plain, numeric, bool_flag, yes, file, parents, above, below, auto, generate, length, if_missing } => {
+                let spots = above.is_some() as u8 + below.is_some() as u8 + auto as u8;
+                if spots > 1 {
+                    anyhow::bail!("use at most one of --above <PATH>, --below <PATH>, --auto");
+                }
+                if !parents && spots == 1 {
+                    anyhow::bail!(
+                        "--above/--below/--auto require -p/--parents (when every parent already exists they are no-ops — drop the flag)"
+                    );
+                }
+                let placement = if let Some(a) = above {
+                    cmd::config::Placement::Above(a)
+                } else if let Some(b) = below {
+                    cmd::config::Placement::Below(b)
+                } else {
+                    cmd::config::Placement::Auto
+                };
                 cmd::config::set(
                     &subject,
                     &path,
@@ -461,8 +639,16 @@ fn main() -> anyhow::Result<()> {
                     from.as_deref(),
                     stdin,
                     encrypted,
+                    plain,
+                    numeric,
+                    bool_flag,
                     yes,
                     file.as_deref(),
+                    parents,
+                    &placement,
+                    generate.as_deref(),
+                    length,
+                    if_missing,
                 )
             }
             ConfigCmd::Setall { subject, above, below, yes, file } => {
@@ -501,5 +687,29 @@ fn main() -> anyhow::Result<()> {
             KeysCmd::Lock { yes } => cmd::keys::run_lock(yes),
             KeysCmd::Unlock { yes } => cmd::keys::run_unlock(yes),
         },
+        Commands::Emit { output, subject, dry_run, force } => {
+            cmd::emit::run(cmd::emit::EmitArgs {
+                output: output.as_deref(),
+                subjects: &subject,
+                dry_run,
+                force,
+            })
+        }
+        Commands::Seal { list, json, headless, encrypt, encrypt_all_plain, decrypt, decrypt_all, r#match, except, file, dry_run, yes } => {
+            cmd::seal::run(cmd::seal::SealArgs {
+                list,
+                json,
+                headless,
+                encrypt,
+                encrypt_all_plain,
+                decrypt,
+                decrypt_all,
+                r#match,
+                except,
+                file: file.as_deref(),
+                dry_run,
+                yes,
+            })
+        }
     }
 }

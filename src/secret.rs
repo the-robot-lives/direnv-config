@@ -8,6 +8,8 @@
 //! Parsing rule (per spec): trim the whole scalar → require leading `🔒` →
 //! consume an optional `❗` run (tier) → trim leading/trailing whitespace and
 //! newlines of the remaining body, preserving interior whitespace/newlines.
+//! A scalar that already *is* an encrypted token (the bare `🔒:v1:…` form,
+//! no space) is recognized before marker handling and ingested verbatim.
 
 use serde_yaml::Value;
 
@@ -86,13 +88,28 @@ fn walk_split(val: &Value, prefix: &str, out: &mut Vec<(String, ParsedSecret)>) 
                 Some(Value::Mapping(plain))
             }
         }
-        Value::String(s) => match parse_marker(s) {
-            Some(ps) => {
-                out.push((prefix.to_string(), ps));
-                None
+        Value::String(s) => {
+            // A bare already-encrypted token (`🔒:v1:…` with no space after
+            // the padlock) must be recognized BEFORE marker handling:
+            // parse_marker would strip the padlock, leaving a body that fails
+            // `is_encrypted` and gets re-encrypted (a double wrap) on ingest.
+            let trimmed = s.trim();
+            let secret = if crate::crypto::is_encrypted(trimmed) {
+                Some(ParsedSecret {
+                    tier: crate::crypto::token_tier(trimmed).unwrap_or(0),
+                    body: trimmed.to_string(),
+                })
+            } else {
+                parse_marker(s)
+            };
+            match secret {
+                Some(ps) => {
+                    out.push((prefix.to_string(), ps));
+                    None
+                }
+                None => Some(val.clone()),
             }
-            None => Some(val.clone()),
-        },
+        }
         other => Some(other.clone()),
     }
 }
@@ -190,6 +207,23 @@ mod tests {
         let (plain, secrets) = split_secrets(&input);
         assert!(crate::yaml::path::get_path(&plain, "creds").is_none());
         assert_eq!(secrets.len(), 2);
+    }
+
+    #[test]
+    fn bare_seal_token_split_stores_verbatim() {
+        let key = [7u8; 32];
+        let tok = crate::crypto::encode_token("shh-bare", 1, &key).unwrap();
+        let input: Value =
+            serde_yaml::from_str(&format!("api_token: \"{tok}\"")).unwrap();
+        let (plain, secrets) = split_secrets(&input);
+        // Recognized as a secret leaf: dropped from plain, collected verbatim.
+        assert!(crate::yaml::path::get_path(&plain, "api_token").is_none());
+        let ps = &secrets[0].1;
+        assert_eq!(ps.body, tok);
+        // Stored through build_encrypted_tree byte-verbatim — no double wrap.
+        let tree = build_encrypted_tree(secrets.as_slice(), &key).unwrap();
+        let stored = crate::yaml::path::get_path(&tree, "api_token").unwrap();
+        assert_eq!(stored, Value::String(tok));
     }
 
     #[test]

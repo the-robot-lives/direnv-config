@@ -1,29 +1,31 @@
 # Project Architecture — Summary
 
-**direnv-config** is a YAML-backed configuration + secrets layer for direnv consisting of a Rust CLI (`dc`), shell integration hooks, and five SDK clients (TypeScript, Python, Elixir, PHP read-only; Rust read + write) kept aligned by shared contract tests.
+**direnv-config** is a YAML-backed configuration + secrets layer for direnv: a Rust CLI (`dc`) managing per-directory config stores, a direnv stdlib extension bridging stores into shell env vars, a `precmd` hook giving cross-process IPC via a monotonic version counter, five read/write SDK clients, and a small Hologram landing site. It owns `.envrc.dc`, the scalar-config/secret source of truth for the trl-infra fleet.
 
 ## Components
 
-- **Rust CLI (`dc`)** — Manages YAML config stores: write configs, read values, resolve layers, export as env vars; secrets (encrypt/decrypt/gen/bat), `.envrc*` source editing (`config`), key-file management (`keys`), remote sync (compare/push/infisical)
-- **direnv stdlib (`lib/direnv-stdlib.sh`)** — Shell functions (`dc_yaml`, `dc_export`, `dc_get`, `dc_set`) used in `.envrc` files
-- **Shell hooks (`bin/dc-init`, `bin/tabbing-on-step`)** — `precmd` hook that watches `.version` for IPC-driven env reload; Zellij pane-title helper
-- **Completions (`completions/`)** — zsh (`_dc`) + bash (`dc.bash`) via `make install-completions` (`shell/dc.zsh` is a deprecated stub)
-- **SDKs (`sdk/`)** — Five language clients with native + CLI backends; `contract-tests/` shared fixtures
-- **Demo (`demo/`)** — Simulated project/k8 `.envrc` trees with expected-state fixtures
+- **Rust CLI (`dc`)** — store ops (yaml/load/get/set/env/bump/init/status/list/purge), secrets (gen, encrypt/decrypt, seal, secrets, bat), source editing (config, emit), key management (keys), remote sync (compare/push/infisical)
+- **Store engine (`src/store/`, `src/yaml/`)** — path-hash store naming, advisory locking, four-layer deep merge with tombstones, parent-chain inheritance, flatten rules, dot-path expressions
+- **Shell layer (`lib/`, `bin/`, `completions/`)** — direnv stdlib functions, IPC hook generator, Zellij tab-title helper, zsh/bash completions
+- **SDKs (`sdk/`)** — five language clients, each with native (direct file) and CLI (subprocess) backends, aligned by shared contract tests
+- **Web (`web/`, `helm/dirconfig-site/`)** — Phoenix/Hologram landing site, containerized, deployed by its own Helm chart
 
 ## Key Architectural Patterns
 
-- **Layer resolution**: `base.yaml` -> `{DC_ENV}.yaml` -> `local.yaml` -> `secrets.yaml`, deep-merged into `.active`
-- **Parent chain inheritance**: Stores form an implicit hierarchy by filesystem path; configs deep-merge ancestor-first
-- **Tombstone pruning**: `_dc_pruned: true` discards inherited config at any level
-- **Flatten rules**: `_dc` config maps YAML paths to env var names (explicit + wildcard)
-- **File-based IPC**: Monotonic `.version` counter enables cross-process state sharing via `precmd` polling
-- **Secrets**: `🔒`-marked scalars encrypted at rest (XChaCha20-Poly1305) as flat self-describing strings; redaction by default, audited reveal, `⛔` shadow store, digest-based remote comparison (no plaintext leaks)
+- **Layer resolution**: per named config, `base.yaml` → env overlay → `local.yaml` → `secrets.yaml` deep-merge into an `.active` snapshot, regenerated on every mutation under an advisory lock
+- **Parent-chain inheritance**: stores chain by path-derived names; ancestors merge oldest-first; a tombstone breaks inheritance
+- **Flatten rules**: the `_dc` config maps YAML paths to env var names (explicit + wildcard); `dc env` emits escaped exports plus DC_ROOT/DC_VERSION/DC_ENV
+- **Value precedence**: env override → dc store → env fallback → auto-generation → static default; `--auto` at most memoizes the first draw to an unsourced `.envrc.auto` file — it never enters the YAML config (durable values go through `dc config set`)
+- **File-based IPC**: every write bumps `.version` atomically; the `precmd` hook re-evaluates `dc env` on change
+- **Secrets**: `🔒`-marked scalars encrypt at rest into flat self-describing `🔒:v1` tokens (XChaCha20-Poly1305) that merge, flatten, and SDKs pass through opaquely; key in an external lockable 0600 file; redaction by default with audited reveals; `⛔` shadow store; ingest auto-routes secrets to `secrets.yaml` with verbatim (never double-encrypted) tokens
+- **Source ↔ store sync**: `dc load`/`dc emit` roundtrip external YAML and the store (tokens byte-identical, no key needed); emit refuses git-tracked or non-gitignored outputs unless forced; `dc config set` splices source lines, `-p` builds missing parents with placement control
+- **Remote sync**: SHA-256 digest compare against `infisical://` and `k8://` targets (no plaintext or length leaks); `.infisical-secrets.yaml` drives map-based sync with populate-compatible precedence
+- **SDK dual backends**: all five languages read and write; native backend needs no binary, CLI backend guarantees identical semantics; contract tests pin behavior including secret passthrough
 
 ## Noizu Ecosystem Fit
 
-Standalone Rust project (own `make install`, no `k8-lib`) — a dependency of the wider utilities rather than a consumer: `.envrc.k8.dc` holds scalar build/deploy config for `.infra-config.yaml` tooling, and `dc infisical`/`compare`/`push` feed the Infisical → k8s Secret flow.
+Standalone install (own `make install`, no k8-lib dependency) — a dependency of the fleet rather than a consumer: `.envrc.dc` holds scalar build/deploy config for `.infra-config.yaml` tooling, and the Infisical sync feeds the Infisical → k8s Secret pipeline. The credential layering `dc: → override: → auto: → default:` maps to `dc get` flags and `.infisical-secrets.yaml` spec keys.
 
 ## Technology
 
-Rust (clap, serde_yaml, anyhow, chacha20poly1305, reqwest+rustls), POSIX shell, YAML configs stored at `~/.local/state/direnv-config/`; key in the external lockable file `~/.config/direnv-config/keys` (legacy `settings.yaml` fallback), settings at `~/.config/direnv-config/settings.yaml`.
+Rust (clap, serde_yaml, anyhow, chacha20poly1305, reqwest + rustls, sha2), POSIX/zsh/bash shell, YAML state at `~/.local/state/direnv-config/`, settings and key file at `~/.config/direnv-config/`, SDKs in Rust/TypeScript/Python/Elixir/PHP, web in Phoenix/Hologram, CI via GitHub Actions.

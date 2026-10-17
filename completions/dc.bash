@@ -82,7 +82,7 @@ _dc() {
                 return
             fi ;;
         get)
-            opts="--raw --override --fallback --auto --default --reveal --clippy --reveal-restricted"
+            opts="--raw --override --fallback --auto --default --reveal --clippy --reveal-restricted --keys --redact --flat --paths"
             if [[ "$cur" != -* ]]; then
                 ((pos == 0)) && COMPREPLY=($(compgen -W "$(__dc_configs)" -- "$cur"))
                 return
@@ -158,7 +158,7 @@ _dc() {
                     esac
                     # Fall through to flag completion for known subcommands.
                     case "$sub" in
-                        set)    opts="--value --from --stdin --encrypted --yes --file" ;;
+                        set)    opts="--value --from --stdin --encrypted --plain --numeric --bool --yes --file --generate --length --if-missing" ;;
                         setall) opts="--above --below --yes --file" ;;
                         secure) opts="--note" ;;
                     esac

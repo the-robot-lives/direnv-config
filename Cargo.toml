@@ -20,6 +20,7 @@ chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
 sha2 = "0.10"
 rand = "0.8"
+rsa = { version = "0.9", features = ["pem"] }
 chacha20poly1305 = "0.10"
 base64 = "0.22"
 libc = "0.2"
@@ -29,6 +30,7 @@ url = "2"
 
 [dev-dependencies]
 tempfile = "3"
+base64 = "0.22"
 
 [profile.release]
 opt-level = "z"

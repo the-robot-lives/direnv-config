@@ -44,10 +44,11 @@ export CF_ACCOUNT_ID=abc123
 export TAB_THEME=kanagawa
 ```
 
-The `.envrc` function `dc_export` (no arguments) evals this output to set all env vars.
+The `.envrc` function `dc_export` (no arguments) evals this output to set all env vars. `dc env --list` prints bare `key=value` pairs instead of `export` statements (used for diffing/inspection).
 
 ## Implementation
 
 - `yaml::flatten::parse_rules()` — parse `_dc` config into `FlattenRule` structs
 - `yaml::flatten::flatten()` — evaluate rules against resolved configs
 - `yaml::flatten::emit_exports()` — format as shell `export` statements
+- `yaml::flatten::emit_exports_with_dc_vars()` — prepend `DC_ROOT` (store source dir), `DC_VERSION` (current counter), and `DC_ENV` (from the environment, defaulting to `dev`) — this is what `dc env` calls
