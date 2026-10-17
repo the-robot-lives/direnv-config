@@ -172,7 +172,16 @@ dc config set app db.password --value 'example-not-a-secret' --yes
 
 Brand-new keys insert into the **last-loaded** file (registered externals first, then `.envrc*` heredocs); use `-p/--parents` to create missing parent sections (`--below/--above/--auto` place the new top-most section; alphabetical is the default), or `--file <path>` to pin the destination. A key found in two sources is refused with every candidate listed — pick one with `--file`.
 
-**Store write vs source write.** `dc set app feature_flag true` writes the **store** (default layer `local`) and never touches your YAML; `dc config set` edits the **source file** and refreshes the store. Store-local values shadow source values on every resolution — after a `dc set`, editing the load file won't change what `dc get` returns until you `dc unset app feature_flag`. `dc config set` encrypts by default: `--plain` stores a literal value with no 🔒 marker (non-secret values — overwriting an encrypted value also drops its tier marker), `--numeric` stores the value as an unquoted YAML number (`bip: 4`; integers and finite floats only — `NaN`/`inf` and anything non-numeric are rejected), `--bool` stores an unquoted YAML boolean (`flag: true`; only `true`/`false` case-insensitive — `yes`/`no`/`1`/`0` are rejected), and `--encrypted` stores a value that is already a `🔒:v1` token verbatim. `--numeric`/`--bool` imply plaintext (numbers and booleans are never encrypted) and conflict with `--encrypted` (and each other); `--plain` combines with neither. Literal-mode values are shown unredacted in the confirm preview — only encrypted tokens are masked.
+**Store write vs source write.** `dc set app feature_flag true` writes the **store** (default layer `local`) and never touches your YAML; `dc config set` edits the **source file** and refreshes the store. Store-local values shadow source values on every resolution — after a `dc set`, editing the load file won't change what `dc get` returns until you `dc unset app feature_flag`. `dc config set` encrypts by default: `--plain` stores a literal value with no 🔒 marker (non-secret values — overwriting an encrypted value also drops its tier marker), `--numeric` stores the value as an unquoted YAML number (`bip: 4`; integers and finite floats only — `NaN`/`inf` and anything non-numeric are rejected), `--bool` stores an unquoted YAML boolean (`flag: true`; only `true`/`false` case-insensitive — `yes`/`no`/`1`/`0` are rejected), and `--encrypted` stores a value that is already a `🔒:v1` token verbatim. `--numeric`/`--bool` imply plaintext (numbers and booleans are never encrypted); all three conflict with `--encrypted`, `--numeric`/`--bool` conflict with each other, and `--plain` may ride along with either (the typed flag wins — numeric beats bool). Literal-mode values are shown unredacted in the confirm preview — only encrypted tokens are masked. Resulting YAML per mode:
+
+```bash
+dc config set app port --numeric --value 8080 --yes   # → port: 8080
+dc config set app port --numeric --value=-3 --yes     # → port: -3 (negative needs `=`: `--value -3` parses as a flag)
+dc config set app bip --numeric --value 1e3 --yes     # → bip: 1e3 (float notation accepted, stored as written)
+dc config set app debug --bool --value TRUE --yes     # → debug: true (normalized to lowercase)
+dc config set app bip --plain --value 4 --yes         # → bip: "4" (quoted string, unmarked)
+dc config set app bip --value 4 --yes                 # → bip: "🔒 🔒:v1:…" (encrypted by default)
+```
 
 **Generate an auto value.**
 
@@ -214,6 +223,7 @@ DB_PASS=$(dc get app db.password --reveal --raw 2>/dev/null); echo "${#DB_PASS} 
 - **The registry is append-only.** Each `dc load` re-registers its files in argument order (last = last loaded, and the insert target for new keys). Deleting a loaded file yields warnings, not failures; there is no deregister command yet (#15).
 - **The secrets map is a separate mechanism.** `dc:`/`override:`/`auto:`/`default:` in `.infisical-secrets.yaml` are that file's per-var spec keys (precedence `ref → template → file → env → dc → fallback_dc → default`), not store layers — the fleet shorthand "layering dc: → override: → auto: → default:" refers to them. dc parses `auto:` there but never generates, and an entry with only `override:` has no `dc` source for `dc infisical get/set/compare` to round-trip.
 - **Unmarked values print in the clear.** Bare `dc get` masks only `🔒` tokens and `⛔` sentinels; a secret stored without the marker comes back verbatim. Same for `dc get <subject>` with no path — the resolved snapshot prints with tokens still encrypted but plain values as-is. Keep every sensitive value `🔒`-marked.
+- **Switching a 🔒 key to plain/numeric/bool replaces the stale secrets-layer copy.** Re-ingest drops the old encrypted entry instead of leaving it to shadow the new value (#40), so `dc get` returns the plain/typed value; older builds need `dc unset <subj> <path> --layer secrets` by hand.
 
 ### Quick reference (load workflow)
 
