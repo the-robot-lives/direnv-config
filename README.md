@@ -192,6 +192,28 @@ dc gen-secrets --file secrets/dc.local.yaml --inline   # fill every 🎲 placeho
 
 `--auto` memoizes the first draw only when an `--override`/`--fallback` env var was named — as a plaintext `export` line appended to `<project>/secrets/.envrc.auto`, which nothing sources. Durable values still go through `dc config set` / `dc set`.
 
+**Generate and store a secret: `dc config set --generate`.** Instead of `--value`/`--from`/`--stdin`, `--generate <KIND>` mints a fresh secret with the same CSPRNG generator as `dc get --auto` and stores it (encrypted at rest by default; `--plain` stores the literal instead, and the preview stays masked either way — a generated value is never echoed; the output line says `generated <kind> (<n> chars) → <subject> <path>`). Mutually exclusive with `--value`/`--from`/`--stdin` and with `--encrypted`/`--numeric`/`--bool`; composes with `-p/--parents`, `--above/--below/--auto`, `--file`, `--yes`.
+
+| KIND | default | `--length N` | output |
+|---|---|---|---|
+| `password` | 32 chars | N = characters | URL/shell-safe alphanumeric `[A-Za-z0-9]` |
+| `hex` | 32 bytes → 64 chars | N = bytes (output 2×) | lowercase hex |
+| `base64` | 32 bytes | N = bytes | standard base64, `=`-padded |
+| `base64url` | 32 bytes | N = bytes | URL-safe base64, unpadded |
+| `elixir` / `secret-key-base` | 64 chars | N = characters, minimum 32 | `mix phx.gen.secret` equivalent: `N` random bytes → standard-base64 alphabet, no padding, truncated to exactly N chars |
+| `uuid` | — | rejected | random v4 UUID |
+| `rsa` | — | rejected | 2048-bit PKCS#1 PEM private key, base64-encoded onto one line (`base64 -d` it back into a `.pem`) |
+
+`--if-missing` makes the command idempotent: when the leaf already holds a non-empty value (⛔ shadow sentinel included) nothing is generated or written and the output says `skipped`; an empty value (`key: ""`) or a missing leaf is generated.
+
+```bash
+dc config set app db.password --generate password --yes                    # 32-char alphanumeric, encrypted
+dc config set app secrets.key_base --generate secret-key-base --yes        # phx.gen.secret-equivalent 64 chars
+dc config set app db.api_key --generate hex --length 16 -p --yes           # 16 bytes → 32 hex chars, deep insert
+dc config set app tls.rsa_key --generate rsa --yes                         # 2048-bit PEM, base64-encoded
+dc config set app db.password --generate password --if-missing --yes       # no-op if already set → "skipped"
+```
+
 **Override locally.** Per-machine value: `dc set` (lands in `local.yaml`). Per-environment: a `dev.yaml`/`staging.yaml` overlay selected by `$DC_ENV` (default `dev`). Per-invocation: `dc_export APP_DB_PASSWORD=app.db.password --override APP_DB_PASSWORD` (env wins when set) or `--fallback APP_DB_PASSWORD` (dc wins, env as fallback).
 
 **Inspect safely.** Encrypted values print as `🔒 **redacted**` unless you reveal:
@@ -253,6 +275,7 @@ Full CLI list in [Command reference](#command-reference).
 | `dc emit [--output F] [--subject S]... [--dry-run] [--force]` | inverse: store → loadable YAML; gitignore-gated, values never printed |
 | `dc config get <name> <path>` | find the source line (`file:line`, redacted preview) |
 | `dc config set <name> <path> --value V [--plain\|--numeric\|--bool\|--encrypted] [--yes] [-p] [--file F]` | encrypt + splice the owning source file, then refresh the store |
+| `dc config set <name> <path> --generate KIND [--length N] [--if-missing] [--plain] [--yes]` | mint a fresh secret (password/hex/base64/base64url/elixir/uuid/rsa) and store it — never echoed |
 | `dc config setall <name> [--above/--below PATH]` | insert a YAML section from stdin |
 | `dc set <name> <key> <value> [--layer L]` | store write (default layer `local`) — not a source edit |
 | `dc gen-secrets [--file F] [--inline]` | fill `🎲` placeholders with generated, encrypted secrets |

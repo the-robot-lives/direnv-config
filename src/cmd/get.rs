@@ -438,17 +438,18 @@ fn run_keys(name: &str, path: Option<&str>, flat: bool) -> Result<()> {
     Ok(())
 }
 
-
+/// One CSPRNG generator shared with `dc gen` and `dc config set --generate`
+/// (see [`crate::generate`]). `--auto` keeps its historical infallible
+/// contract: an unknown kind falls back to a password draw, and the (only
+/// fallible) `rsa` kind falls back the same way rather than failing a shell
+/// boot that asked for a best-effort generation.
 fn auto_generate(gen_type: &str, length: usize) -> String {
-    let mut rng = rand::thread_rng();
-    match gen_type {
-        "hex" => {
-            let bytes: Vec<u8> = (0..length).map(|_| rng.gen()).collect();
-            bytes.iter().map(|b| format!("{:02x}", b)).collect()
-        }
-        // "password" and any unrecognised format
-        _ => {
+    let kind = crate::generate::normalize_kind(gen_type).unwrap_or("password");
+    match crate::generate::generate(kind, Some(length)) {
+        Ok((val, _)) => val,
+        Err(_) => {
             const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+            let mut rng = rand::thread_rng();
             (0..length)
                 .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
                 .collect()

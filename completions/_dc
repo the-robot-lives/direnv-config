@@ -268,7 +268,13 @@ _dc() {
                   '--from=[read value from a file]:file:_files' \
                   '--stdin[read value from stdin]' \
                   '--encrypted[value is already an encrypted token]' \
+                  '--plain[store the value as a literal, unencrypted]' \
+                  '--numeric[store the value as an unquoted YAML number]' \
+                  '--bool[store the value as an unquoted YAML boolean]' \
                   '--yes[skip confirmation]' \
+                  '--generate=[generate a fresh secret of KIND instead of reading a value]:kind:(password hex base64 base64url elixir secret-key-base uuid rsa)' \
+                  '--length=[length for --generate (chars for password/elixir, bytes for hex/base64/base64url)]:n:' \
+                  '--if-missing[with --generate: skip when the leaf already has a value]' \
                   '1:name:' && ret=0
                 ;;
             esac

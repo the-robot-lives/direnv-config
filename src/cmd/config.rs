@@ -666,10 +666,31 @@ fn redact_for_display(line: &str) -> String {
 /// `--numeric` / `--bool`) display their value as-is — the user explicitly
 /// chose an exposed value; encrypted lines keep token redaction (structure-
 /// only chain lines, e.g. `  parent:`, pass through unchanged either way).
+/// A freshly *generated* value is never echoed: in literal (`--plain`) mode
+/// the value is masked behind a `**generated**` placeholder.
 fn display_line(line: &str, mode: ValueMode) -> String {
     match mode {
         ValueMode::Encrypt => redact_for_display(line),
         ValueMode::Plain | ValueMode::Numeric | ValueMode::Bool => line.to_string(),
+    }
+}
+
+fn preview_line(line: &str, mode: ValueMode, generated: bool) -> String {
+    if generated && matches!(mode, ValueMode::Plain) {
+        mask_line_value(line)
+    } else {
+        display_line(line, mode)
+    }
+}
+
+/// Replace a preview line's value with a `**generated**` placeholder — used
+/// for freshly generated values, which must never reach stdout/stderr even
+/// when stored as `--plain`. Structure-only lines (no `key: value` colon)
+/// pass through unchanged.
+fn mask_line_value(line: &str) -> String {
+    match line.split_once(':') {
+        Some((prefix, _)) => format!("{prefix}: \"{} **generated**\"", marker(0)),
+        None => line.to_string(),
     }
 }
 
@@ -841,26 +862,27 @@ pub fn set(
     file: Option<&str>,
     parents: bool,
     placement: &Placement,
+    generate_kind: Option<&str>,
+    length: Option<usize>,
+    if_missing: bool,
 ) -> Result<()> {
-    let plaintext = acquire_value(value, from, stdin_flag)?;
-    // Validated (and trimmed/normalized) before anything is read/written, so
-    // an invalid typed value can never reach a file.
-    let literal_text = if numeric {
-        Some(validate_numeric(&plaintext)?)
-    } else if boolean {
-        Some(validate_bool(&plaintext)?)
-    } else {
-        None
-    };
-    let mode = if numeric {
-        ValueMode::Numeric
-    } else if boolean {
-        ValueMode::Bool
-    } else if plain {
-        ValueMode::Plain
-    } else {
-        ValueMode::Encrypt
-    };
+    // --generate mints the value here — it can never ride alongside a value
+    // source (clap enforces too; this guards direct callers) or with the
+    // typed/existing-token modes that only describe a provided value.
+    if generate_kind.is_some() && (value.is_some() || from.is_some() || stdin_flag) {
+        bail!("--generate is mutually exclusive with --value / --from / --stdin");
+    }
+    if generate_kind.is_some() && (encrypted || numeric || boolean) {
+        bail!("--generate cannot be combined with --encrypted/--numeric/--bool");
+    }
+    if generate_kind.is_none() {
+        if length.is_some() {
+            bail!("--length requires --generate <KIND>");
+        }
+        if if_missing {
+            bail!("--if-missing requires --generate <KIND>");
+        }
+    }
     // Using stdin for the value means we cannot also prompt on stdin.
     let yes = yes || stdin_flag;
 
@@ -881,8 +903,54 @@ pub fn set(
         bail!("narrow the path, edit the file directly, or force one with --file <path>");
     }
 
+    // --if-missing decides generate-vs-skip BEFORE anything is minted: a leaf
+    // that already holds a non-empty value (⚠ including the ⛔ shadow
+    // sentinel — never clobbered) wins; only an empty value (`key: ""`) or a
+    // missing leaf is generated.
+    if if_missing {
+        let already_set = match locs.first() {
+            Some(loc) => {
+                let lines = read_lines(&loc.file)?;
+                !current_value_text(&lines, loc).trim().is_empty()
+            }
+            None => false,
+        };
+        if already_set {
+            println!("skipped {subject} {path} — already set (--if-missing)");
+            return Ok(());
+        }
+    }
+
+    let mut generated_kind: Option<&'static str> = None;
+    let plaintext = match generate_kind {
+        Some(kind) => {
+            let (v, canonical) = crate::generate::generate(kind, length)?;
+            generated_kind = Some(canonical);
+            v
+        }
+        None => acquire_value(value, from, stdin_flag)?,
+    };
+    // Validated (and trimmed/normalized) before anything is read/written, so
+    // an invalid typed value can never reach a file.
+    let literal_text = if numeric {
+        Some(validate_numeric(&plaintext)?)
+    } else if boolean {
+        Some(validate_bool(&plaintext)?)
+    } else {
+        None
+    };
+    let mode = if numeric {
+        ValueMode::Numeric
+    } else if boolean {
+        ValueMode::Bool
+    } else if plain {
+        ValueMode::Plain
+    } else {
+        ValueMode::Encrypt
+    };
+
     if locs.is_empty() {
-        return set_errata(subject, path, &plaintext, encrypted, mode, yes, forced.as_deref(), parents, placement);
+        return set_errata(subject, path, &plaintext, encrypted, mode, yes, forced.as_deref(), parents, placement, generated_kind);
     }
 
     let loc = &locs[0];
@@ -896,19 +964,29 @@ pub fn set(
         crate::crypto::encode_token(&plaintext, tier, &crate::settings::key()?)?
     };
     let new_line = compute_set_line(loc, tier, &token, mode);
-    let new_display = match mode {
-        ValueMode::Encrypt => format!(
-            "{}: \"{} **redacted**\"",
+    let new_display = if generated_kind.is_some() {
+        // A minted value is never echoed — even in --plain mode the preview
+        // shows a masked placeholder (the file itself gets the real value).
+        format!(
+            "{}: \"{} **generated**\"",
             " ".repeat(loc.indent) + &loc.raw_key,
-            marker(tier)
-        ),
-        // Plain/numeric/bool values are shown unredacted — the user chose to
-        // store them in the open, so the preview must match the file.
-        ValueMode::Plain | ValueMode::Numeric | ValueMode::Bool => format!(
-            "{}: {}",
-            " ".repeat(loc.indent) + &loc.raw_key,
-            value_field(tier, &token, mode)
-        ),
+            marker(0)
+        )
+    } else {
+        match mode {
+            ValueMode::Encrypt => format!(
+                "{}: \"{} **redacted**\"",
+                " ".repeat(loc.indent) + &loc.raw_key,
+                marker(tier)
+            ),
+            // Plain/numeric/bool values are shown unredacted — the user chose to
+            // store them in the open, so the preview must match the file.
+            ValueMode::Plain | ValueMode::Numeric | ValueMode::Bool => format!(
+                "{}: {}",
+                " ".repeat(loc.indent) + &loc.raw_key,
+                value_field(tier, &token, mode)
+            ),
+        }
     };
 
     eprintln!("Update {} {} in {}:{}", subject, path, loc.file.display(), loc.key_line + 1);
@@ -919,6 +997,9 @@ pub fn set(
     lines = splice_set(&lines, loc, new_line);
     write_lines(&loc.file, &lines)?;
     println!("updated {}:{}", loc.file.display(), loc.key_line + 1);
+    if let Some(kind) = generated_kind {
+        println!("generated {kind} ({} chars) → {subject} {path}", plaintext.chars().count());
+    }
     refresh_store(subject, Some(&loc.file))?;
     Ok(())
 }
@@ -938,6 +1019,7 @@ fn set_errata(
     forced: Option<&Path>,
     parents: bool,
     placement: &Placement,
+    generated_kind: Option<&'static str>,
 ) -> Result<()> {
     let store = crate::store::find_current_store()?;
     let meta = crate::store::meta::read_meta(&store)?;
@@ -1011,12 +1093,12 @@ fn set_errata(
         let (idx, new_lines) = computed.map_err(|e| anyhow::anyhow!("{e} (in {})", f.display()))?;
         eprintln!("Insert {subject} {path} into {}:{}", f.display(), idx + 1);
         if new_lines.len() == 1 {
-            let display = display_line(&new_lines[0], mode);
+            let display = preview_line(&new_lines[0], mode, generated_kind.is_some());
             preview(&lines, idx.saturating_sub(1), idx.saturating_sub(1), Some(&display));
         } else {
             preview(&lines, idx.saturating_sub(1), idx.saturating_sub(1), None);
             for l in &new_lines {
-                eprintln!("  ✚  {}", display_line(l, mode));
+                eprintln!("  ✚  {}", preview_line(l, mode, generated_kind.is_some()));
             }
         }
         if !yes && !confirm("Insert this entry?")? {
@@ -1027,6 +1109,9 @@ fn set_errata(
         }
         write_lines(f, &lines)?;
         eprintln!("inserted {subject} {path} at {}:{}", f.display(), idx + 1);
+        if let Some(kind) = generated_kind {
+            println!("generated {kind} ({} chars) → {subject} {path}", plaintext.chars().count());
+        }
         refresh_store(subject, Some(f))?;
         return Ok(());
     }
