@@ -25,6 +25,9 @@ pub struct KeyLoc {
     #[allow(dead_code)]
     pub layer: Option<String>,
     pub path: String,
+    /// The key as written on the line (quoted keys keep their quotes), so
+    /// rewrites of an existing line preserve its style.
+    pub raw_key: String,
     pub file: PathBuf,
     /// 0-indexed line where `key:` appears.
     pub key_line: usize,
@@ -93,18 +96,39 @@ fn is_terminator(line: &str) -> bool {
     line.trim() == "YAML"
 }
 
-/// Parse a `key: value` line, returning `(key, rest_after_colon)`.
-fn parse_key_line(trimmed: &str) -> Option<(String, String)> {
-    let pos = trimmed.find(':')?;
-    let key = &trimmed[..pos];
-    if key.is_empty()
-        || !key
-            .chars()
+/// The plain (unquoted) key charset: alphanumeric, `_`, `-`, `.`.
+fn is_plain_key(k: &str) -> bool {
+    !k.is_empty()
+        && k.chars()
             .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
-    {
-        return None;
+}
+
+/// Strip matching surrounding quotes from a key when the inner text is a
+/// plain key (`"foo"` → `foo`). Returns the key unchanged when it is already
+/// plain, and `None` for anything that is neither.
+fn unquote_key(raw: &str) -> Option<String> {
+    if is_plain_key(raw) {
+        return Some(raw.to_string());
     }
-    Some((key.to_string(), trimmed[pos + 1..].to_string()))
+    let ch: Vec<char> = raw.chars().collect();
+    if ch.len() >= 2 && (ch[0] == '"' || ch[0] == '\'') && ch[ch.len() - 1] == ch[0] {
+        let inner: String = ch[1..ch.len() - 1].iter().collect();
+        if is_plain_key(&inner) {
+            return Some(inner);
+        }
+    }
+    None
+}
+
+/// Parse a `key: value` line, returning `(key, raw_key, rest_after_colon)`.
+/// `key` is the addressable (unquoted) name; quoted keys (`"foo":`,
+/// `'foo':`) are unquoted for path addressing while `raw_key` keeps the
+/// as-written text so rewrites preserve the quoting.
+fn parse_key_line(trimmed: &str) -> Option<(String, String, String)> {
+    let pos = trimmed.find(':')?;
+    let raw = &trimmed[..pos];
+    let key = unquote_key(raw)?;
+    Some((key, raw.to_string(), trimmed[pos + 1..].to_string()))
 }
 
 /// Scan all `dc_yaml` heredoc blocks in `lines`.
@@ -142,6 +166,8 @@ pub fn scan_blocks(lines: &[String]) -> Vec<HeredocBlock> {
 struct ScannedKey {
     indent: usize,
     key: String,
+    /// Key text as written (quoted keys keep their quotes).
+    raw: String,
     key_line: usize,
     value_start: usize,
     value_end: usize,
@@ -162,7 +188,7 @@ fn scan_keys(lines: &[String], range: Range<usize>) -> Vec<ScannedKey> {
             continue;
         }
         let indent = line.len() - trimmed.len();
-        let Some((key, rest)) = parse_key_line(trimmed) else {
+        let Some((key, raw, rest)) = parse_key_line(trimmed) else {
             i += 1;
             continue;
         };
@@ -190,6 +216,7 @@ fn scan_keys(lines: &[String], range: Range<usize>) -> Vec<ScannedKey> {
             keys.push(ScannedKey {
                 indent,
                 key,
+                raw,
                 key_line: i,
                 value_start: i + 1,
                 value_end: last_nonblank,
@@ -200,6 +227,7 @@ fn scan_keys(lines: &[String], range: Range<usize>) -> Vec<ScannedKey> {
             keys.push(ScannedKey {
                 indent,
                 key,
+                raw,
                 key_line: i,
                 value_start: i,
                 value_end: i,
@@ -234,6 +262,7 @@ pub fn index_block(block: &HeredocBlock, lines: &[String], file: &Path) -> Vec<K
                 .map(|(_, k)| k.as_str())
                 .collect::<Vec<_>>()
                 .join("."),
+            raw_key: k.raw.clone(),
             file: file.to_path_buf(),
             key_line: k.key_line,
             value_start: k.value_start,
@@ -348,6 +377,7 @@ pub fn index_external_lines(lines: &[String], file: &Path) -> Vec<KeyLoc> {
                     .map(|(_, k)| k.as_str())
                     .collect::<Vec<_>>()
                     .join("."),
+                raw_key: k.raw.clone(),
                 file: file.to_path_buf(),
                 key_line: k.key_line,
                 value_start: k.value_start,
