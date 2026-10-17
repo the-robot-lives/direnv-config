@@ -209,6 +209,15 @@ Capture plaintext only when needed, straight into a variable (audited; verify by
 DB_PASS=$(dc get app db.password --reveal --raw 2>/dev/null); echo "${#DB_PASS} chars"
 ```
 
+**Reveal a whole section.** `--reveal` on a path that resolves to a mapping/list decrypts every encrypted leaf in the subtree (audited per leaf) and prints the subtree YAML with structure/keys kept — plain leaves pass through untouched:
+
+```bash
+dc get app db --reveal               # decrypted YAML of the db section (leaves decrypted)
+dc get app db                        # same tree, tokens still encrypted (unchanged behaviour)
+```
+
+A leaf that fails to decrypt aborts with a per-leaf error before anything is printed (no ciphertext on stdout). `--raw` is a no-op on a section (it only affects scalar output); `--clippy` copies the decrypted subtree YAML to the clipboard.
+
 **Round-trip / back up.** `dc emit` re-emits the store as loadable YAML (`secrets.dc.yaml` by default, `<out>.<layer>.yaml` variants carrying `_dc_layer`, exact `dc load` invocations printed for the special `_dc`/`auto` subjects). Tokens re-emit byte-identical, values are never printed, and targets must be `.gitignore`-covered unless `--force` — `dc load` on the emitted files reconstructs the same store.
 
 ### Pitfalls
