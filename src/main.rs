@@ -2,6 +2,7 @@ mod audit;
 mod cmd;
 mod crypto;
 mod envrc;
+mod generate;
 mod infisical;
 mod keys;
 mod kube;
@@ -473,6 +474,42 @@ enum ConfigCmd {
         /// siblings (the default with -p)
         #[arg(long)]
         auto: bool,
+        /// Generate a fresh secret of KIND and store it instead of reading a
+        /// value (mutually exclusive with --value/--from/--stdin and with
+        /// --encrypted/--numeric/--bool; encrypted at rest by default,
+        /// respects --plain, -p and placement). KIND is one of:
+        ///
+        ///   password      — URL/shell-safe alphanumeric [A-Za-z0-9]; default 32 chars
+        ///
+        ///   hex           — lowercase hex; default 32 bytes → 64 chars; N counts bytes
+        ///
+        ///   base64        — standard base64, '='-padded; default 32 bytes; N counts bytes
+        ///
+        ///   base64url     — URL-safe base64, unpadded; default 32 bytes; N counts bytes
+        ///
+        ///   elixir        — `mix phx.gen.secret` equivalent: standard-base64 alphabet, no padding, truncated to exactly N chars; default 64, minimum 32 (alias: secret-key-base)
+        ///
+        ///   uuid          — random v4 UUID
+        ///
+        ///   rsa           — 2048-bit PKCS#1 PEM private key, base64-encoded onto one line (decode with `base64 -d`); no --length
+        ///
+        /// The generated value is never printed — the output line says
+        /// `generated <kind> (<n> chars) → <subject> <path>`.
+        #[arg(
+            long,
+            value_name = "KIND",
+            conflicts_with_all = ["value", "from", "stdin", "encrypted", "numeric", "bool_flag"]
+        )]
+        generate: Option<String>,
+        /// Length for --generate (defaults per kind: password/elixir count
+        /// characters — elixir floors at 32; hex/base64/base64url count
+        /// bytes; rejected for uuid/rsa)
+        #[arg(long, value_name = "N", requires = "generate")]
+        length: Option<usize>,
+        /// With --generate: skip when the leaf already holds a non-empty
+        /// value — output says `skipped` instead of `generated`
+        #[arg(long, requires = "generate")]
+        if_missing: bool,
     },
     /// Insert a YAML section (from stdin) above/below an anchor entry
     Setall {
@@ -567,7 +604,7 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Config { sub } => match sub {
             ConfigCmd::Get { subject, path } => cmd::config::get(&subject, &path),
-            ConfigCmd::Set { subject, path, value, from, stdin, encrypted, plain, numeric, bool_flag, yes, file, parents, above, below, auto } => {
+            ConfigCmd::Set { subject, path, value, from, stdin, encrypted, plain, numeric, bool_flag, yes, file, parents, above, below, auto, generate, length, if_missing } => {
                 let spots = above.is_some() as u8 + below.is_some() as u8 + auto as u8;
                 if spots > 1 {
                     anyhow::bail!("use at most one of --above <PATH>, --below <PATH>, --auto");
@@ -598,6 +635,9 @@ fn main() -> anyhow::Result<()> {
                     file.as_deref(),
                     parents,
                     &placement,
+                    generate.as_deref(),
+                    length,
+                    if_missing,
                 )
             }
             ConfigCmd::Setall { subject, above, below, yes, file } => {
