@@ -480,15 +480,18 @@ enum ConfigCmd {
         /// respects --plain, -p and placement). KIND is one of:
         ///
         ///   password      — URL/shell-safe alphanumeric [A-Za-z0-9]; default 32 chars
+        ///
         ///   hex           — lowercase hex; default 32 bytes → 64 chars; N counts bytes
+        ///
         ///   base64        — standard base64, '='-padded; default 32 bytes; N counts bytes
+        ///
         ///   base64url     — URL-safe base64, unpadded; default 32 bytes; N counts bytes
-        ///   elixir        — `mix phx.gen.secret` equivalent: standard-base64
-        ///                   alphabet, no padding, truncated to exactly N chars;
-        ///                   default 64, minimum 32 (alias: secret-key-base)
+        ///
+        ///   elixir        — `mix phx.gen.secret` equivalent: standard-base64 alphabet, no padding, truncated to exactly N chars; default 64, minimum 32 (alias: secret-key-base)
+        ///
         ///   uuid          — random v4 UUID
-        ///   rsa           — 2048-bit PKCS#1 PEM private key, base64-encoded
-        ///                   onto one line (decode with `base64 -d`); no --length
+        ///
+        ///   rsa           — 2048-bit PKCS#1 PEM private key, base64-encoded onto one line (decode with `base64 -d`); no --length
         ///
         /// The generated value is never printed — the output line says
         /// `generated <kind> (<n> chars) → <subject> <path>`.
