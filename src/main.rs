@@ -437,6 +437,25 @@ enum InfisicalCmd {
 enum ConfigCmd {
     /// Find where a secret is set in .envrc* files
     Get { subject: String, path: String },
+    /// Remove a leaf key or a whole branch from the SOURCE file that holds it
+    /// (and from the store layers). Prints key paths and child key names only.
+    #[command(alias = "delete")]
+    Unset {
+        subject: String,
+        path: String,
+        /// Force the source file (registered external file or .envrc*)
+        #[arg(long, value_name = "FILE")]
+        file: Option<String>,
+        /// Apply without the confirmation prompt
+        #[arg(long)]
+        yes: bool,
+        /// Show what would be removed; write nothing
+        #[arg(long)]
+        dry_run: bool,
+        /// Also remove parents left empty by the removal
+        #[arg(long)]
+        prune_empty: bool,
+    },
     /// Encrypt and write a secret value into its .envrc* source line
     Set {
         subject: String,
@@ -650,6 +669,9 @@ fn main() -> anyhow::Result<()> {
                     length,
                     if_missing,
                 )
+            }
+            ConfigCmd::Unset { subject, path, file, yes, dry_run, prune_empty } => {
+                cmd::config::unset(&subject, &path, file.as_deref(), yes, dry_run, prune_empty)
             }
             ConfigCmd::Setall { subject, above, below, yes, file } => {
                 let (anchor, is_below) = match (above, below) {

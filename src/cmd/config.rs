@@ -1055,6 +1055,238 @@ pub(crate) fn refresh_store(subject: &str, edited: Option<&Path>) -> Result<()> 
     Ok(())
 }
 
+/// Empty mappings and nulls compare equal, so removing a section's last
+/// child (leaving `parent:` bare) is not mistaken for a stray change.
+fn normalize_empty(v: &serde_yaml::Value) -> serde_yaml::Value {
+    use serde_yaml::Value;
+    match v {
+        Value::Mapping(m) if m.is_empty() => Value::Null,
+        Value::Mapping(m) => {
+            let mut out = serde_yaml::Mapping::new();
+            for (k, val) in m {
+                out.insert(k.clone(), normalize_empty(val));
+            }
+            Value::Mapping(out)
+        }
+        Value::Sequence(s) => Value::Sequence(s.iter().map(normalize_empty).collect()),
+        other => other.clone(),
+    }
+}
+
+fn count_leaves(v: &serde_yaml::Value) -> usize {
+    match v {
+        serde_yaml::Value::Mapping(m) => m.values().map(count_leaves).sum::<usize>().max(
+            // an empty mapping still counts as one (empty) entry
+            if m.is_empty() { 1 } else { 0 },
+        ),
+        serde_yaml::Value::Sequence(s) => s.iter().map(count_leaves).sum::<usize>().max(1),
+        _ => 1,
+    }
+}
+
+/// Key NAMES only (never values) describing what `v` holds.
+fn describe_removal(v: &serde_yaml::Value) -> String {
+    match v {
+        serde_yaml::Value::Mapping(m) if !m.is_empty() => {
+            let names: Vec<String> = m
+                .keys()
+                .map(|k| k.as_str().map(str::to_string).unwrap_or_else(|| "<non-string key>".into()))
+                .collect();
+            let shown: Vec<&str> = names.iter().take(40).map(|s| s.as_str()).collect();
+            let more = if names.len() > shown.len() {
+                format!(", … +{}", names.len() - shown.len())
+            } else {
+                String::new()
+            };
+            format!(
+                "branch: {} child key(s), {} leaf value(s) in total [{}{}]",
+                names.len(),
+                count_leaves(v),
+                shown.join(", "),
+                more
+            )
+        }
+        serde_yaml::Value::Sequence(s) => format!("list: {} item(s)", s.len()),
+        _ => "leaf".to_string(),
+    }
+}
+
+/// `dc config unset|delete <subject> <path>` — remove a leaf or a whole
+/// branch from the SOURCE file that holds it (the inverse of `config set`),
+/// plus the matching store-layer entries so nothing lingers in the store.
+/// Output names key paths and child key NAMES only — never values.
+pub fn unset(
+    subject: &str,
+    path: &str,
+    file: Option<&str>,
+    yes: bool,
+    dry_run: bool,
+    prune_empty: bool,
+) -> Result<()> {
+    let forced = match file {
+        Some(f) => Some(resolve_forced_file(f)?),
+        None => None,
+    };
+    let mut locs = find_locs(subject, path)?;
+    if let Some(target) = &forced {
+        locs.retain(|l| same_path(&l.file, target));
+    }
+    if locs.is_empty() {
+        bail!("no source entry found for `{subject} {path}` — nothing to remove");
+    }
+    if locs.len() > 1 {
+        eprintln!("ambiguous — `{subject} {path}` matches multiple locations:");
+        for l in &locs {
+            eprintln!("  {}:{}", l.file.display(), l.key_line + 1);
+        }
+        bail!("force one with --file <path>");
+    }
+    let mut loc = locs.remove(0);
+    let lines = read_lines(&loc.file)?;
+    let original_bytes = std::fs::read_to_string(&loc.file)?;
+    let store = crate::store::find_current_store()?;
+    let meta = crate::store::meta::read_meta(&store)?;
+    let ext_entry = meta.external.iter().find(|e| same_path(&e.path, &loc.file));
+    let is_external = ext_entry.is_some();
+    let layer = loc
+        .layer
+        .clone()
+        .or_else(|| ext_entry.and_then(|e| e.layer.clone()))
+        .unwrap_or_else(|| "base".to_string());
+
+    let (range, ext) = subject_body_range(&lines, &loc.file, is_external, subject)
+        .map_err(|e| anyhow::anyhow!("{e} — no changes written"))?;
+    let before_tree = parse_subject_tree(&lines, range.clone(), ext, subject).map_err(|e| {
+        anyhow::anyhow!(
+            "cannot verify removal of `{subject} {path}` in {}: {e} — no changes written",
+            loc.file.display()
+        )
+    })?;
+    if crate::yaml::path::get_path(&before_tree, path).is_none() {
+        bail!(
+            "`{subject} {path}` is indexed in {} but does not resolve in the parsed YAML — no changes written",
+            loc.file.display()
+        );
+    }
+
+    // --prune-empty: climb while the parent would be left with no children.
+    let mut eff_path = path.to_string();
+    if prune_empty {
+        while let Some((parent, _)) = eff_path.rsplit_once('.') {
+            let only_child = matches!(
+                crate::yaml::path::get_path(&before_tree, parent),
+                Some(serde_yaml::Value::Mapping(m)) if m.len() == 1
+            );
+            if !only_child {
+                break;
+            }
+            eff_path = parent.to_string();
+        }
+        if eff_path != path {
+            locs = find_locs(subject, &eff_path)?;
+            locs.retain(|l| same_path(&l.file, &loc.file));
+            match locs.len() {
+                1 => loc = locs.remove(0),
+                _ => bail!("cannot locate emptied parent `{eff_path}` unambiguously — no changes written"),
+            }
+        }
+    }
+
+    let removed_value = crate::yaml::path::get_path(&before_tree, &eff_path)
+        .unwrap_or(serde_yaml::Value::Null);
+    let end = subtree_end(&lines, &loc, range.end);
+    let (first, last) = (loc.key_line, end); // [first, last)
+
+    println!(
+        "{} {} {} in {} (lines {}-{}): {}",
+        if dry_run { "Would remove" } else { "Remove" },
+        subject,
+        eff_path,
+        loc.file.display(),
+        first + 1,
+        last,
+        describe_removal(&removed_value)
+    );
+    if eff_path != path {
+        println!("  (--prune-empty: `{path}` was the only child of `{eff_path}`)");
+    }
+    println!("  store: layer `{layer}` and `secrets` entries for this path are removed too");
+
+    let mut after_lines = lines.clone();
+    after_lines.drain(first..last);
+    let after_tree = subject_body_range(&after_lines, &loc.file, is_external, subject)
+        .map_err(|e| anyhow::anyhow!("{e} — no changes written"))
+        .and_then(|(r, e2)| parse_subject_tree(&after_lines, r, e2, subject))
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "cannot verify removal of `{subject} {eff_path}`: {e} — no changes written"
+            )
+        })?;
+    let mut expected = before_tree.clone();
+    crate::yaml::path::delete_path(&mut expected, &eff_path);
+    let verify = |after: &serde_yaml::Value| normalize_empty(&expected) == normalize_empty(after);
+    if !verify(&after_tree) {
+        bail!(
+            "removal check failed: deleting lines {}-{} would change more than `{subject} {eff_path}`; no changes written (in {})",
+            first + 1,
+            last,
+            loc.file.display()
+        );
+    }
+
+    if dry_run {
+        println!("dry run — nothing written");
+        return Ok(());
+    }
+    if !yes && !confirm("Apply this removal?")? {
+        bail!("aborted — no changes written");
+    }
+
+    write_lines_atomic(&loc.file, &after_lines)?;
+    let reverify = (|| -> Result<()> {
+        if std::env::var_os("DC_TEST_POST_WRITE_CORRUPT").is_some() {
+            bail!("simulated post-write mismatch (test hook)");
+        }
+        let reread = read_lines(&loc.file)?;
+        let (r, e2) = subject_body_range(&reread, &loc.file, is_external, subject)?;
+        let tree = parse_subject_tree(&reread, r, e2, subject)?;
+        if !verify(&tree) {
+            bail!("re-read tree differs from the expected tree");
+        }
+        Ok(())
+    })();
+    if let Err(e) = reverify {
+        let restore = std::fs::write(&loc.file, &original_bytes);
+        bail!(
+            "post-write verification failed for `{subject} {eff_path}`: {e}; {}",
+            match restore {
+                Ok(()) => "original file content restored".to_string(),
+                Err(rerr) => format!("RESTORE FAILED — file may be inconsistent ({rerr})"),
+            }
+        );
+    }
+
+    // Store: drop the same path from the source's layer and the secrets layer,
+    // then re-resolve. (Re-ingesting the source cannot delete keys.)
+    {
+        let _lock = crate::store::lock_store(&store)?;
+        for lname in [layer.as_str(), "secrets"] {
+            let lf = crate::store::layout::layer_path(&store, subject, lname);
+            if !lf.exists() {
+                continue;
+            }
+            let mut doc = crate::store::load_layer(&lf)?;
+            if crate::yaml::path::delete_path(&mut doc, &eff_path) {
+                std::fs::write(&lf, serde_yaml::to_string(&doc)?)?;
+            }
+        }
+        crate::store::resolve::resolve_active(&store, subject)?;
+        crate::store::meta::update_configs_list(&store)?;
+    }
+    println!("removed {}:{}-{}", loc.file.display(), first + 1, last);
+    Ok(())
+}
+
 // <REMOVED UUID HERE> get :: auto-generated pointer for public function get
 pub fn get(subject: &str, path: &str) -> Result<()> {
     let locs = find_locs(subject, path)?;
