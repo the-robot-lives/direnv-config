@@ -120,6 +120,9 @@ _dc() {
           ;;
         set)
           _arguments \
+            '--stdin[read the value from stdin instead of the positional VALUE]' \
+            '--secret[treat the value as a secret (default): encrypt it for the store]' \
+            '--plain[store the value exactly as given — no secret handling]' \
             '--layer=[config layer name]:layer:' \
             '--no-bump[do not bump version counter]' \
             '1:config name:_dc_configs' \

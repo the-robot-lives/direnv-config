@@ -142,11 +142,22 @@ enum Commands {
         /// The encrypted token (🔒:v1:t<tier>:<payload>), or pipe via stdin
         token: Option<String>,
     },
-    /// Set a config value
+    /// Set a config value (stored as an encrypted secret unless --plain)
     Set {
         name: String,
         key: String,
-        value: String,
+        /// Value to store — omit it and pass --stdin to read from stdin
+        value: Option<String>,
+        /// Read the value from stdin instead of the positional VALUE
+        #[arg(long)]
+        stdin: bool,
+        /// Treat the value as a secret (the default): encrypt it for the
+        /// store, or store an existing dc token verbatim
+        #[arg(long, conflicts_with = "plain")]
+        secret: bool,
+        /// Store the value exactly as given — no secret handling
+        #[arg(long)]
+        plain: bool,
         #[arg(long)]
         layer: Option<String>,
         #[arg(long)]
@@ -556,8 +567,8 @@ fn main() -> anyhow::Result<()> {
         Commands::Decrypt { token } => {
             cmd::decrypt::run(token.as_deref())
         }
-        Commands::Set { name, key, value, layer, no_bump } => {
-            cmd::set::run(&name, &key, &value, layer.as_deref(), no_bump)
+        Commands::Set { name, key, value, stdin, secret, plain, layer, no_bump } => {
+            cmd::set::run(&name, &key, value.as_deref(), stdin, secret, plain, layer.as_deref(), no_bump)
         }
         Commands::Unset { name, keys, layer, no_bump } => {
             cmd::unset::run(&name, &keys, layer.as_deref(), no_bump)
