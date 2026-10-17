@@ -85,6 +85,17 @@ enum Commands {
         /// Decrypt a ⛔ shadowed/restricted secret (stricter than --reveal, audited)
         #[arg(long)]
         reveal_restricted: bool,
+        /// Print the YAML structure of the subject/section with every leaf
+        /// VALUE replaced by a marker — 🔒 encrypted leaf, <set> non-empty
+        /// plaintext, <empty> empty/null. No value or ciphertext is ever
+        /// printed and no decryption happens (works with no key available);
+        /// a scalar path prints `path: <marker>`
+        #[arg(long, alias = "redact", conflicts_with_all = ["reveal", "raw", "clippy", "reveal_restricted"])]
+        keys: bool,
+        /// With --keys: print one dotted path per leaf
+        /// (`subject.a.b[i]<TAB>marker`) instead of YAML
+        #[arg(long, alias = "paths", requires = "keys")]
+        flat: bool,
     },
     /// Generate a random secret (encrypted by default)
     Gen {
@@ -496,8 +507,8 @@ fn main() -> anyhow::Result<()> {
         Commands::Load { files, layer, replace, replace_key, if_missing, no_bump } => {
             cmd::load::run(&files, layer.as_deref(), replace, replace_key.as_deref(), if_missing, no_bump)
         }
-        Commands::Get { name, path, raw, r#override, fallback, auto, default, reveal, clippy, reveal_restricted } => {
-            cmd::get::run(&name, path.as_deref(), raw, r#override.as_deref(), fallback.as_deref(), &auto, default.as_deref(), reveal, clippy, reveal_restricted)
+        Commands::Get { name, path, raw, r#override, fallback, auto, default, reveal, clippy, reveal_restricted, keys, flat } => {
+            cmd::get::run(&name, path.as_deref(), raw, r#override.as_deref(), fallback.as_deref(), &auto, default.as_deref(), reveal, clippy, reveal_restricted, keys, flat)
         }
         Commands::Gen { hex, base64, length, raw, tier } => {
             cmd::gen::run(hex, base64, length, raw, tier)

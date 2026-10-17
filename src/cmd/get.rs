@@ -292,6 +292,153 @@ fn env_lookup(var: &str) -> Option<String> {
     std::env::var(var).ok().filter(|v| !v.is_empty())
 }
 
+// ---------------------------------------------------------------------------
+// --keys (`--redact`): shape-only output
+// ---------------------------------------------------------------------------
+
+/// Markers replacing leaf VALUES in `--keys` mode. The shape (keys, nesting,
+/// order) stays; no stored value or ciphertext token is ever printed and no
+/// decryption happens — the key is never read.
+const MARKER_ENCRYPTED: &str = "🔒";
+const MARKER_SET: &str = "<set>";
+const MARKER_EMPTY: &str = "<empty>";
+
+/// Marker for one stored scalar in `--keys` mode. Pointers (`🔗`) resolve
+/// first (keylessly — resolution never decrypts): an encrypted target →
+/// 🔒, the `⛔` restricted sentinel and every other non-empty scalar →
+/// `<set>`, "" (and null/typed-null leaves) → `<empty>`.
+// <REMOVED UUID HERE> keys_marker :: Marker for one stored scalar in --keys mode.
+fn keys_marker(raw: &str) -> String {
+    let val = resolve_pointer(raw, MAX_POINTER_DEPTH).unwrap_or_else(|| raw.to_string());
+    if crate::crypto::is_encrypted(&val) {
+        MARKER_ENCRYPTED.to_string()
+    } else if val.is_empty() {
+        MARKER_EMPTY.to_string()
+    } else {
+        MARKER_SET.to_string()
+    }
+}
+
+/// Recursively replace every leaf of a subtree with its `--keys` marker.
+/// Mapping keys, nesting and insertion order are preserved; comments are
+/// dropped (the output is a fresh YAML render, like `--reveal`'s).
+// <REMOVED UUID HERE> redact_subtree :: Recursively replace every leaf of a subtree with its --keys marker.
+fn redact_subtree(val: &serde_yaml::Value) -> serde_yaml::Value {
+    match val {
+        serde_yaml::Value::Mapping(map) => {
+            let mut out = serde_yaml::Mapping::new();
+            for (k, v) in map {
+                out.insert(k.clone(), redact_subtree(v));
+            }
+            serde_yaml::Value::Mapping(out)
+        }
+        serde_yaml::Value::Sequence(seq) => {
+            serde_yaml::Value::Sequence(seq.iter().map(redact_subtree).collect())
+        }
+        serde_yaml::Value::String(s) => serde_yaml::Value::String(keys_marker(s)),
+        serde_yaml::Value::Number(_) | serde_yaml::Value::Bool(_) => {
+            serde_yaml::Value::String(MARKER_SET.to_string())
+        }
+        serde_yaml::Value::Null => serde_yaml::Value::String(MARKER_EMPTY.to_string()),
+        // Tagged/other exotic nodes carry a non-empty value of some kind.
+        _ => serde_yaml::Value::String(MARKER_SET.to_string()),
+    }
+}
+
+/// Append one `path<TAB>marker` line per leaf of an ALREADY-REDACTED tree.
+/// List items keep their position as `[i]` — the same syntax `dc get`'s
+/// path parser accepts, so every printed path round-trips into a lookup.
+// <REMOVED UUID HERE> flat_walk :: Append one `path<TAB>marker` line per leaf of a redacted tree.
+fn flat_walk(prefix: &str, val: &serde_yaml::Value, out: &mut Vec<String>) {
+    match val {
+        serde_yaml::Value::Mapping(map) => {
+            for (k, v) in map {
+                let key = k.as_str().map(str::to_string).unwrap_or_else(|| {
+                    serde_yaml::to_string(k)
+                        .unwrap_or_default()
+                        .trim()
+                        .to_string()
+                });
+                let child = if prefix.is_empty() {
+                    key
+                } else {
+                    format!("{prefix}.{key}")
+                };
+                flat_walk(&child, v, out);
+            }
+        }
+        serde_yaml::Value::Sequence(seq) => {
+            for (i, v) in seq.iter().enumerate() {
+                flat_walk(&format!("{prefix}[{i}]"), v, out);
+            }
+        }
+        other => {
+            let marker = other.as_str().unwrap_or(MARKER_SET);
+            out.push(format!("{prefix}\t{marker}"));
+        }
+    }
+}
+
+fn emit_flat(prefix: &str, redacted: &serde_yaml::Value) {
+    let mut lines = Vec::new();
+    flat_walk(prefix, redacted, &mut lines);
+    for line in lines {
+        println!("{line}");
+    }
+}
+
+/// `--keys` (`--redact`): print the shape of a subject/section/leaf with
+/// every leaf value replaced by a marker. Never decrypts and never prints a
+/// stored value or ciphertext token. A missing path exits 1 (same contract
+/// as the scalar path). `--override`/`--fallback`/`--auto`/`--default` do
+/// not apply — the stored config is the only source being shown.
+// <REMOVED UUID HERE> run_keys :: --keys redacted structure output for get.
+fn run_keys(name: &str, path: Option<&str>, flat: bool) -> Result<()> {
+    let store = crate::store::find_current_store()?;
+    let chain = crate::store::resolve::resolve_chain(&store);
+    let config = crate::store::resolve::resolve_config(&chain, name)?;
+    match path {
+        None => {
+            let redacted = redact_subtree(&config);
+            if flat {
+                emit_flat(name, &redacted);
+            } else {
+                print!("{}", serde_yaml::to_string(&redacted)?);
+            }
+        }
+        Some(p) => {
+            let Some(node) = crate::yaml::path::get_path(&config, p) else {
+                std::process::exit(1);
+            };
+            let prefix = format!("{name}.{p}");
+            match node {
+                serde_yaml::Value::Mapping(_) | serde_yaml::Value::Sequence(_) => {
+                    let redacted = redact_subtree(&node);
+                    if flat {
+                        emit_flat(&prefix, &redacted);
+                    } else {
+                        print!("{}", serde_yaml::to_string(&redacted)?);
+                    }
+                }
+                // Scalar leaf: `path: <marker>` (or the flat one-liner).
+                scalar => {
+                    let marker = redact_subtree(&scalar)
+                        .as_str()
+                        .unwrap_or(MARKER_SET)
+                        .to_string();
+                    if flat {
+                        println!("{prefix}\t{marker}");
+                    } else {
+                        println!("{prefix}: {marker}");
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+
 fn auto_generate(gen_type: &str, length: usize) -> String {
     let mut rng = rand::thread_rng();
     match gen_type {
@@ -345,7 +492,15 @@ pub fn run(
     reveal: bool,
     clippy: bool,
     reveal_restricted: bool,
+    keys: bool,
+    flat: bool,
 ) -> Result<()> {
+    // --keys: shape-only output — handled before any value resolution;
+    // never decrypts, never prints a stored value or ciphertext token.
+    if keys {
+        return run_keys(name, path, flat);
+    }
+
     let env_var_name = override_var.or(fallback_var);
 
     // No path → dump whole config (original behavior)

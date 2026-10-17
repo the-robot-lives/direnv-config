@@ -91,6 +91,10 @@ _dc() {
             '--reveal[decrypt and print an encrypted secret value]' \
             '--clippy[decrypt and copy to clipboard (macOS)]' \
             '--reveal-restricted[decrypt a shadowed/restricted secret]' \
+            '--keys[print structure with leaf values redacted to markers]' \
+            '--redact[alias for --keys]' \
+            '--flat[with --keys: one dotted path per leaf instead of YAML]' \
+            '--paths[alias for --flat]' \
             '1:config name:_dc_configs' \
             '2:path:' && ret=0
           ;;

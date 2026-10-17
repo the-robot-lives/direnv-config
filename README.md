@@ -218,6 +218,15 @@ dc get app db                        # same tree, tokens still encrypted (unchan
 
 A leaf that fails to decrypt aborts with a per-leaf error before anything is printed (no ciphertext on stdout). `--raw` is a no-op on a section (it only affects scalar output); `--clippy` copies the decrypted subtree YAML to the clipboard.
 
+**See the shape without the values.** `dc get <subject> [<path>] --keys` (alias `--redact`) prints the YAML structure with every leaf value replaced: `🔒` encrypted token, `<set>` non-empty plaintext (numbers/bools included; `⛔` restricted sentinels too), `<empty>` for `""`/null. Keys, nesting, order and key quoting are preserved; no value and no ciphertext is ever printed and no decryption happens — it works with no key available at all. A scalar path prints `path: <marker>`; add `--flat` (alias `--paths`) for one `subject.a.b[i]<TAB>marker` line per leaf (grep/diff-friendly; every path round-trips into a `dc get` lookup). `--keys` refuses `--reveal`/`--clippy`/`--reveal-restricted`/`--raw`.
+
+```bash
+dc get services --keys                # whole subject, values → markers
+dc get services design --keys         # one section
+dc get services design.token --keys   # services.design.token: 🔒
+dc get services --keys --flat         # services.design.token<TAB>🔒 (one path per leaf)
+```
+
 **Round-trip / back up.** `dc emit` re-emits the store as loadable YAML (`secrets.dc.yaml` by default, `<out>.<layer>.yaml` variants carrying `_dc_layer`, exact `dc load` invocations printed for the special `_dc`/`auto` subjects). Tokens re-emit byte-identical, values are never printed, and targets must be `.gitignore`-covered unless `--force` — `dc load` on the emitted files reconstructs the same store.
 
 ### Pitfalls
@@ -261,6 +270,7 @@ Run `dc --help` (or `dc <command> --help`) for full flags.
 dc yaml <name>                     # merge YAML from stdin (--replace --replace-key --if-missing --layer)
 dc load <file>...                  # ingest external YAML files; root keys = subjects (later files win)
 dc get <name> [path]               # read a value (<name> = subject; --raw --override --fallback --auto --default --reveal --clippy)
+dc get <name> [path] --keys        # shape only: leaf values → 🔒/<set>/<empty> (--redact; --flat = one path<TAB>marker per leaf)
 dc set / unset / prune / bump      # mutate values / remove keys or branches / bump .version
 dc env                             # resolved env vars (--list --diff); what dc_export evals
 dc list / status                   # known stores / current merge state
