@@ -6,10 +6,204 @@
 
 use anyhow::{bail, Context, Result};
 use std::io::{IsTerminal, Read, Write};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use crate::envrc::locator::{self, KeyLoc};
 use crate::secret::PADLOCK;
+
+// ---------------------------------------------------------------------------
+// Parse-based placement verification (hard safety gate)
+// ---------------------------------------------------------------------------
+//
+// Line heuristics decide WHERE to edit; the YAML parse decides whether that
+// edit is allowed to be written at all. Every writer below (plain insert,
+// `-p` chain insert, update, setall) must pass the same three gates:
+//
+//   1. the subject's body parses as YAML and the parent path resolves in
+//      the parsed tree (unresolvable ⇒ warn naming subject+path, exit
+//      non-zero, write nothing);
+//   2. simulating the edit and re-parsing proves `<subject>.<path>` lands
+//      at exactly its path and NOTHING else in the tree changed;
+//   3. after the write, the file is re-read from disk and gate 2 is
+//      re-asserted; on any mismatch the original bytes are restored and
+//      the command exits non-zero.
+
+/// Line range holding `subject`'s YAML in `lines`, plus the external flag.
+/// Heredoc block: the body alone is the subject's mapping (the subject is
+/// the heredoc label). External file: the fragment from the subject key to
+/// the next subject parses standalone with the subject as root key.
+fn subject_body_range(
+    lines: &[String],
+    file: &Path,
+    external: bool,
+    subject: &str,
+) -> Result<(Range<usize>, bool)> {
+    if external {
+        let span = locator::external_subject_spans(lines)
+            .into_iter()
+            .find(|s| s.name == subject)
+            .ok_or_else(|| {
+                anyhow::anyhow!("subject `{subject}` not found in {}", file.display())
+            })?;
+        Ok((span.key_line..span.body.end, true))
+    } else {
+        let block = locator::scan_blocks(lines)
+            .into_iter()
+            .find(|b| b.subject == subject)
+            .ok_or_else(|| {
+                anyhow::anyhow!("subject `{subject}` not found in {}", file.display())
+            })?;
+        Ok((block.body, false))
+    }
+}
+
+/// Parse `lines[range]` and return the subject's own tree (external files
+/// hop into the subject's root key first). An empty body normalizes to an
+/// empty mapping so before/after comparisons stay symmetric.
+fn parse_subject_tree(
+    lines: &[String],
+    range: Range<usize>,
+    external: bool,
+    subject: &str,
+) -> Result<serde_yaml::Value> {
+    let text = lines[range].join("\n");
+    let root: serde_yaml::Value =
+        serde_yaml::from_str(&text).map_err(|e| anyhow::anyhow!("YAML parse failed: {e}"))?;
+    let tree = if external {
+        root.get(subject).cloned().ok_or_else(|| {
+            anyhow::anyhow!("subject `{subject}` did not resolve in the parsed YAML")
+        })?
+    } else {
+        root
+    };
+    Ok(match tree {
+        serde_yaml::Value::Null => serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
+        other => other,
+    })
+}
+
+/// The hard invariant for a single-leaf edit: applying the edit to the
+/// `before` tree (`before` + `path` = `expected_field`) must reproduce the
+/// `after` tree exactly. This proves the leaf landed at its own path —
+/// i.e. inside the intended parent section — and that NOTHING else changed
+/// (missing intermediates created by `-p` chains included).
+fn assert_only_leaf_changed(
+    before: &serde_yaml::Value,
+    after: &serde_yaml::Value,
+    subject: &str,
+    path: &str,
+    expected_field: &str,
+) -> Result<()> {
+    let expected: serde_yaml::Value = serde_yaml::from_str(expected_field)
+        .map_err(|e| anyhow::anyhow!("written value is not valid YAML: {e}"))?;
+    let mut expected_tree = before.clone();
+    crate::yaml::path::set_path(&mut expected_tree, path, expected)
+        .map_err(|e| anyhow::anyhow!("cannot apply `{path}` to the parsed tree: {e}"))?;
+    if expected_tree != *after {
+        let detail = if crate::yaml::path::get_path(after, path).is_none() {
+            format!(
+                "`{subject} {path}` would NOT resolve at its own path — the computed insertion point falls outside the parent section"
+            )
+        } else {
+            format!("writing `{subject} {path}` would change other content in the section")
+        };
+        bail!("placement check failed: {detail}; no changes written (subject: {subject}, path: {path})");
+    }
+    Ok(())
+}
+
+/// Multi-key variant for `setall` section inserts: applying every inserted
+/// key to the `before` tree must reproduce `after` exactly.
+fn assert_only_keys_added(
+    before: &serde_yaml::Value,
+    after: &serde_yaml::Value,
+    parent: Option<&str>,
+    keys: &[(String, serde_yaml::Value)],
+    subject: &str,
+) -> Result<()> {
+    let full = |k: &str| match parent {
+        Some(p) => format!("{p}.{k}"),
+        None => k.to_string(),
+    };
+    let mut expected_tree = before.clone();
+    for (k, v) in keys {
+        crate::yaml::path::set_path(&mut expected_tree, &full(k), v.clone())
+            .map_err(|e| anyhow::anyhow!("cannot apply `{}` to the parsed tree: {e}", full(k)))?;
+    }
+    if expected_tree != *after {
+        bail!(
+            "placement check failed: inserting the section under `{subject}` would not land its keys at `{}` exactly, or would change other content; no changes written",
+            keys.iter().map(|(k, _)| full(k)).collect::<Vec<_>>().join(", ")
+        );
+    }
+    Ok(())
+}
+
+/// Gate 3: re-read `f` from disk, re-parse the subject's tree, and re-run
+/// [`assert_only_leaf_changed`]. Any failure restores the original bytes
+/// and exits non-zero — the file is never left half-edited.
+fn post_write_verify_or_restore(
+    f: &Path,
+    original_bytes: &str,
+    before_tree: &serde_yaml::Value,
+    external: bool,
+    subject: &str,
+    path: &str,
+    expected_field: &str,
+) -> Result<()> {
+    let failure = (|| -> Result<()> {
+        // Test-only hook: simulate a post-write mismatch to exercise the
+        // restore path in integration tests (never set in real environments).
+        if std::env::var_os("DC_TEST_POST_WRITE_CORRUPT").is_some() {
+            bail!("simulated post-write mismatch (test hook)");
+        }
+        let reread = read_lines(f)?;
+        let (range, ext) = subject_body_range(&reread, f, external, subject)?;
+        let tree = parse_subject_tree(&reread, range, ext, subject)?;
+        assert_only_leaf_changed(before_tree, &tree, subject, path, expected_field)
+    })();
+    match failure {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let restore = std::fs::write(f, original_bytes);
+            bail!(
+                "post-write verification failed for `{subject} {path}`: {e}; {}",
+                match restore {
+                    Ok(()) => "original file content restored".to_string(),
+                    Err(rerr) => format!("RESTORE FAILED — file may be inconsistent ({rerr})"),
+                }
+            );
+        }
+    }
+}
+
+/// Insert-preview that renders the context around the REAL write position:
+/// the ✚ lines print exactly where they will land (after the ➡-marked
+/// line), not appended after the window — the previous rendering showed
+/// following sections as if they were the parent.
+fn preview_insert(lines: &[String], idx: usize, new_lines: &[String], mode: ValueMode, generated: bool) {
+    let start = idx.saturating_sub(2);
+    let end = (idx + 3).min(lines.len());
+    eprintln!("  ┄┄ context ┄┄");
+    for (i, line) in lines.iter().enumerate().take(end).skip(start) {
+        if i == idx {
+            for l in new_lines {
+                eprintln!("  ✚  {}", preview_line(l, mode, generated));
+            }
+        }
+        if i + 1 == idx {
+            eprintln!("  ➡️  {}", redact_for_display(line));
+        } else {
+            eprintln!("      {line}");
+        }
+    }
+    if idx >= lines.len() {
+        for l in new_lines {
+            eprintln!("  ✚  {}", preview_line(l, mode, generated));
+        }
+    }
+}
 
 pub(crate) fn read_lines(path: &Path) -> Result<Vec<String>> {
     let content = std::fs::read_to_string(path)?;
@@ -281,34 +475,14 @@ fn errata_compute(
         let locs = locator::index_block(&block, lines, Path::new(""));
         match parent {
             Some(p) => {
-                if let Some(ploc) = locs.iter().find(|l| l.path == p) {
+                if let Some(ploc) = locs.iter().find(|l| l.path == p && l.subject == subject) {
                     ensure_extendable(lines, ploc, p)?;
                     let child_indent = ploc.indent + 2;
-                    // Find end of the parent's subtree.
-                    let mut idx = if ploc.is_block_scalar {
-                        ploc.value_end + 1
-                    } else {
-                        ploc.key_line + 1
-                    };
-                    while idx < block.body.end {
-                        let lt = lines[idx].trim_start();
-                        if lt.is_empty() || lt.starts_with('#') {
-                            idx += 1;
-                            continue;
-                        }
-                        let ind = lines[idx].len() - lt.len();
-                        if ind > ploc.indent {
-                            idx += 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    let line = format!(
-                        "{}{}: {}",
-                        " ".repeat(child_indent),
-                        leaf,
-                        value_field
-                    );
+                    // End of the parent's subtree: directly after its last
+                    // line, before trailing blanks / the next section's
+                    // leading comment.
+                    let idx = subtree_end(lines, ploc, block.body.end);
+                    let line = format!("{}{}: {}", " ".repeat(child_indent), leaf, value_field);
                     return Ok(Some((idx, line)));
                 }
             }
@@ -372,31 +546,11 @@ fn external_errata_compute(
                 return Ok(None);
             };
             ensure_extendable(lines, ploc, p)?;
-            // Find the end of the parent's subtree (bounded by the subject's body).
-            let mut idx = if ploc.is_block_scalar {
-                ploc.value_end + 1
-            } else {
-                ploc.key_line + 1
-            };
-            while idx < span.body.end {
-                let lt = lines[idx].trim_start();
-                if lt.is_empty() || lt.starts_with('#') {
-                    idx += 1;
-                    continue;
-                }
-                let ind = lines[idx].len() - lt.len();
-                if ind > ploc.indent {
-                    idx += 1;
-                } else {
-                    break;
-                }
-            }
-            let line = format!(
-                "{}{}: {}",
-                " ".repeat(ploc.indent + 2),
-                leaf,
-                value_field
-            );
+            // End of the parent's subtree (bounded by the subject's body):
+            // directly after its last line, before trailing blanks / the
+            // next section's leading comment.
+            let idx = subtree_end(lines, ploc, span.body.end);
+            let line = format!("{}{}: {}", " ".repeat(ploc.indent + 2), leaf, value_field);
             Ok(Some((idx, line)))
         }
         None => {
@@ -435,12 +589,15 @@ pub enum Placement {
 }
 
 /// Longest dotted-prefix of `path` already present in `locs` (`None` = even
-/// the first component is missing — the new section is top-level).
-fn deepest_prefix(locs: &[KeyLoc], path: &str) -> Option<String> {
+/// the first component is missing — the new section is top-level). Only keys
+/// belonging to `subject` count: paths are subject-relative, so another
+/// subject's identically-named key in the same external file is never a
+/// match (matching it silently wrote new keys into the wrong section).
+fn deepest_prefix(locs: &[KeyLoc], subject: &str, path: &str) -> Option<String> {
     let comps: Vec<&str> = path.split('.').collect();
     for n in (1..comps.len()).rev() {
         let p = comps[..n].join(".");
-        if locs.iter().any(|l| l.path == p) {
+        if locs.iter().any(|l| l.path == p && l.subject == subject) {
             return Some(p);
         }
     }
@@ -448,33 +605,79 @@ fn deepest_prefix(locs: &[KeyLoc], path: &str) -> Option<String> {
 }
 
 /// Direct children of `prefix` (top-level keys when `prefix` is `None`), in
-/// file order.
-fn children_of<'a>(locs: &'a [KeyLoc], prefix: Option<&str>) -> Vec<&'a KeyLoc> {
+/// file order — strictly within `subject` (see [`deepest_prefix`]).
+/// Direct children of `prefix` (top-level keys when `prefix` is `None`), in
+/// file order — strictly within `subject` (see [`deepest_prefix`]). Returns
+/// owned clones (call sites only read position/indent/path).
+fn children_of(locs: &[KeyLoc], subject: &str, prefix: Option<&str>) -> Vec<KeyLoc> {
     locs.iter()
-        .filter(|l| match prefix {
-            Some(p) => l
-                .path
-                .strip_prefix(p)
-                .and_then(|rest| rest.strip_prefix('.'))
-                .is_some_and(|rest| !rest.contains('.')),
-            None => !l.path.contains('.'),
+        .filter(|l| {
+            if l.subject != subject {
+                return false;
+            }
+            match prefix {
+                Some(p) => l
+                    .path
+                    .strip_prefix(p)
+                    .and_then(|rest| rest.strip_prefix('.'))
+                    .is_some_and(|rest| !rest.contains('.')),
+                None => !l.path.contains('.'),
+            }
         })
+        .cloned()
         .collect()
 }
 
-/// End index (exclusive) of the subtree rooted at `loc`, bounded by `body_end`
-/// (the heredoc terminator / external subject span end).
+/// One-past-the-end index of the subtree rooted at `loc`, bounded by
+/// `body_end` (the heredoc terminator / external subject span end).
+///
+/// The walk extends the subtree over deeper-indented real lines and
+/// deeper-indented comments (a child's own nested keys and comments belong
+/// to it), across interleaved blank lines — and stops at the first real
+/// line or comment at `loc.indent` or shallower (the next section and its
+/// leading comment). Blank lines never extend the subtree, so the returned
+/// index sits directly after the subtree's LAST line: BEFORE any trailing
+/// blank lines and before any following comment/section. Inserting at this
+/// index therefore lands inside the block, never between the block and the
+/// next section's comment.
 fn subtree_end(lines: &[String], loc: &KeyLoc, body_end: usize) -> usize {
-    let mut idx = if loc.is_block_scalar { loc.value_end + 1 } else { loc.key_line + 1 };
+    let mut end = if loc.is_block_scalar {
+        loc.value_end + 1
+    } else {
+        loc.key_line + 1
+    };
+    let mut idx = end;
     while idx < body_end {
-        let trimmed = lines[idx].trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
+        let line = &lines[idx];
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() {
             idx += 1;
             continue;
         }
-        let ind = lines[idx].len() - trimmed.len();
+        let ind = line.len() - trimmed.len();
         if ind > loc.indent {
+            end = idx + 1;
             idx += 1;
+        } else {
+            break;
+        }
+    }
+    end
+}
+
+/// Index at which a line inserted BEFORE the anchor lands outside the
+/// anchor's lead-in: walking back from `anchor_key_line`, blank lines and
+/// comments belong to the gap between sections (often the NEXT section's
+/// leading comment), so the insert goes right after the last real line
+/// above the anchor — or at `body_start` when the anchor opens the body.
+/// Mirrors [`subtree_end`]'s "never inside a trailing blank/comment run"
+/// rule on the insertion-before side.
+fn insert_before(lines: &[String], anchor_key_line: usize, body_start: usize) -> usize {
+    let mut idx = anchor_key_line;
+    while idx > body_start {
+        let t = lines[idx - 1].trim_start();
+        if t.is_empty() || t.starts_with('#') {
+            idx -= 1;
         } else {
             break;
         }
@@ -519,12 +722,13 @@ fn parents_compute(
     tier: u8,
     token: &str,
     mode: ValueMode,
+    body_start: usize,
     body_end: usize,
     top_indent: usize,
     placement: &Placement,
 ) -> Result<(usize, Vec<String>)> {
     let comps: Vec<&str> = path.split('.').collect();
-    let prefix = deepest_prefix(locs, path);
+    let prefix = deepest_prefix(locs, subject, path);
     let base = prefix.as_ref().map(|p| p.split('.').count()).unwrap_or(0);
     let missing: Vec<&str> = comps[base..].to_vec();
     let head = missing[0];
@@ -533,20 +737,32 @@ fn parents_compute(
     // The chain must be able to nest under the deepest existing ancestor:
     // refuse (before any write) when that key already holds a scalar value.
     if let Some(p) = &prefix {
-        let ploc = locs.iter().find(|l| &l.path == p).unwrap();
+        let ploc = locs
+            .iter()
+            .find(|l| &l.path == p && l.subject == subject)
+            .unwrap();
         ensure_extendable(lines, ploc, p)?;
     }
 
     // Anchor + nesting level. When a prefix exists the level is forced (the
     // chain must nest under it); otherwise the anchor's own level defines
-    // where the new section nests.
+    // where the new section nests. The anchor must belong to the subject
+    // too — another section's identically-named key is never a valid anchor.
     let anchor = match placement {
         Placement::Above(a) | Placement::Below(a) => {
-            let anchor = locs.iter().find(|l| l.path == *a).ok_or_else(|| {
-                anyhow::anyhow!("anchor `{a}` not found under subject `{subject}`")
-            })?;
+            let anchor = locs
+                .iter()
+                .find(|l| l.path == *a && l.subject == subject)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("anchor `{a}` not found under subject `{subject}`")
+                })?;
             if let Some(p) = &prefix {
-                let want = locs.iter().find(|l| &l.path == p).unwrap().indent + 2;
+                let want = locs
+                    .iter()
+                    .find(|l| &l.path == p && l.subject == subject)
+                    .unwrap()
+                    .indent
+                    + 2;
                 if anchor.indent != want {
                     bail!(
                         "anchor `{a}` is not a sibling of the new section `{head}` (expected indent {want}, found {})",
@@ -560,7 +776,13 @@ fn parents_compute(
     };
     let indent = match (&anchor, &prefix) {
         (Some(a), _) => a.indent,
-        (None, Some(p)) => locs.iter().find(|l| &l.path == p).unwrap().indent + 2,
+        (None, Some(p)) => {
+            locs.iter()
+                .find(|l| &l.path == p && l.subject == subject)
+                .unwrap()
+                .indent
+                + 2
+        }
         (None, None) => top_indent,
     };
 
@@ -576,23 +798,24 @@ fn parents_compute(
     }
 
     let idx = match placement {
-        Placement::Above(_) => anchor.as_ref().unwrap().key_line,
+        Placement::Above(_) => insert_before(lines, anchor.as_ref().unwrap().key_line, body_start),
         Placement::Below(_) => {
             let a = anchor.as_ref().unwrap();
             subtree_end(lines, a, body_end)
         }
         Placement::Auto => {
-            let sibs = children_of(locs, prefix.as_deref());
+            let sibs = children_of(locs, subject, prefix.as_deref());
             // First existing sibling sorting after the new section name…
             let spot = {
                 let mut names: Vec<&str> = sibs.iter().map(|s| leaf_key(&s.path)).collect();
                 names.sort();
-                names.into_iter().find(|n| *n > head).and_then(|n| {
-                    sibs.iter().find(|s| leaf_key(&s.path) == n).copied()
-                })
+                names
+                    .into_iter()
+                    .find(|n| *n > head)
+                    .and_then(|n| sibs.iter().find(|s| leaf_key(&s.path) == n))
             };
             match spot {
-                Some(s) => s.key_line,
+                Some(s) => insert_before(lines, s.key_line, body_start),
                 // …else append after the last sibling (file order)…
                 None => match sibs.last() {
                     Some(last) => subtree_end(lines, last, body_end),
@@ -600,7 +823,9 @@ fn parents_compute(
                     None => match prefix.as_deref() {
                         Some(p) => subtree_end(
                             lines,
-                            locs.iter().find(|l| l.path == p).unwrap(),
+                            locs.iter()
+                                .find(|l| l.path == p && l.subject == subject)
+                                .unwrap(),
                             body_end,
                         ),
                         // …else at the very end of the subject body (before
@@ -641,12 +866,17 @@ fn preview(lines: &[String], key_line: usize, last_line: usize, new_display: Opt
     for (i, line) in lines.iter().enumerate().take(end).skip(start) {
         if i >= key_line && i <= last_line {
             eprintln!("  ➡️  {}", redact_for_display(line));
+            // The replacement lands exactly where the marked block sits, so
+            // show the new value there — trailing it past the context window
+            // reads as an append after the next section.
+            if i == last_line {
+                if let Some(nd) = new_display {
+                    eprintln!("  ✚  {nd}");
+                }
+            }
         } else {
             eprintln!("      {line}");
         }
-    }
-    if let Some(nd) = new_display {
-        eprintln!("  ✚  {nd}");
     }
 }
 
@@ -950,7 +1180,18 @@ pub fn set(
     };
 
     if locs.is_empty() {
-        return set_errata(subject, path, &plaintext, encrypted, mode, yes, forced.as_deref(), parents, placement, generated_kind);
+        return set_errata(
+            subject,
+            path,
+            &plaintext,
+            encrypted,
+            mode,
+            yes,
+            forced.as_deref(),
+            parents,
+            placement,
+            generated_kind,
+        );
     }
 
     let loc = &locs[0];
@@ -989,13 +1230,67 @@ pub fn set(
         }
     };
 
-    eprintln!("Update {} {} in {}:{}", subject, path, loc.file.display(), loc.key_line + 1);
-    preview(&lines, loc.key_line, if loc.is_block_scalar { loc.value_end } else { loc.key_line }, Some(&new_display));
+    eprintln!(
+        "Update {} {} in {}:{}",
+        subject,
+        path,
+        loc.file.display(),
+        loc.key_line + 1
+    );
+    preview(
+        &lines,
+        loc.key_line,
+        if loc.is_block_scalar {
+            loc.value_end
+        } else {
+            loc.key_line
+        },
+        Some(&new_display),
+    );
+    // Hard safety gate (pre-write), same contract as the insert path: the
+    // file must parse and the splice must change ONLY `<subject>.<path>`.
+    let original_bytes = std::fs::read_to_string(&loc.file)?;
+    let meta = crate::store::meta::read_meta(&crate::store::find_current_store()?)?;
+    let is_external = meta.external.iter().any(|e| same_path(&e.path, &loc.file));
+    let expected_field = value_field(tier, &token, mode);
+    let (range, ext) = subject_body_range(&lines, &loc.file, is_external, subject)
+        .map_err(|e| anyhow::anyhow!("{e} — no changes written"))?;
+    let before_tree = parse_subject_tree(&lines, range, ext, subject).map_err(|e| {
+        anyhow::anyhow!(
+            "cannot verify update of `{subject} {path}` in {}: {e} — no changes written",
+            loc.file.display()
+        )
+    })?;
+    let after_lines = splice_set(&lines, loc, new_line.clone());
+    let after_tree = match subject_body_range(&after_lines, &loc.file, is_external, subject)
+        .map_err(|e| anyhow::anyhow!("{e} — no changes written"))
+        .and_then(|(r, e2)| parse_subject_tree(&after_lines, r, e2, subject))
+    {
+        Ok(t) => t,
+        Err(e) => bail!(
+            "cannot verify update of `{subject} {path}` in {}: {e} — no changes written",
+            loc.file.display()
+        ),
+    };
+    if let Err(e) =
+        assert_only_leaf_changed(&before_tree, &after_tree, subject, path, &expected_field)
+    {
+        bail!("{e} (in {})", loc.file.display());
+    }
     if !yes && !confirm("Apply this change?")? {
         bail!("aborted — no changes written");
     }
-    lines = splice_set(&lines, loc, new_line);
+    lines = after_lines;
     write_lines(&loc.file, &lines)?;
+    post_write_verify_or_restore(
+        &loc.file,
+        &original_bytes,
+        &before_tree,
+        is_external,
+        subject,
+        path,
+        &expected_field,
+    )?;
     println!("updated {}:{}", loc.file.display(), loc.key_line + 1);
     if let Some(kind) = generated_kind {
         println!("generated {kind} ({} chars) → {subject} {path}", plaintext.chars().count());
@@ -1038,13 +1333,19 @@ fn set_errata(
             }
             // subject must exist in this external file
             let lines = read_lines(f)?;
-            if !locator::external_subject_spans(&lines).iter().any(|s| s.name == subject) {
+            if !locator::external_subject_spans(&lines)
+                .iter()
+                .any(|s| s.name == subject)
+            {
                 continue;
             }
             lines
         } else {
             let lines = read_lines(f)?;
-            if !locator::scan_blocks(&lines).iter().any(|b| b.subject == subject) {
+            if !locator::scan_blocks(&lines)
+                .iter()
+                .any(|b| b.subject == subject)
+            {
                 continue;
             }
             lines
@@ -1065,14 +1366,38 @@ fn set_errata(
                 };
                 let locs = locator::index_external_lines(&lines, f);
                 let top = span.child_indent.unwrap_or(span.indent + 2);
-                parents_compute(&lines, &locs, subject, path, 0, &token, mode, span.body.end, top, placement)
+                parents_compute(
+                    &lines,
+                    &locs,
+                    subject,
+                    path,
+                    0,
+                    &token,
+                    mode,
+                    span.body.start,
+                    span.body.end,
+                    top,
+                    placement,
+                )
             } else {
                 let blocks = locator::scan_blocks(&lines);
                 let Some(block) = blocks.iter().find(|b| b.subject == subject) else {
                     continue;
                 };
                 let locs = locator::index_block(block, &lines, Path::new(""));
-                parents_compute(&lines, &locs, subject, path, 0, &token, mode, block.body.end, 0, placement)
+                parents_compute(
+                    &lines,
+                    &locs,
+                    subject,
+                    path,
+                    0,
+                    &token,
+                    mode,
+                    block.body.start,
+                    block.body.end,
+                    0,
+                    placement,
+                )
             }
         } else {
             let computed = if is_external {
@@ -1092,15 +1417,40 @@ fn set_errata(
         };
         let (idx, new_lines) = computed.map_err(|e| anyhow::anyhow!("{e} (in {})", f.display()))?;
         eprintln!("Insert {subject} {path} into {}:{}", f.display(), idx + 1);
-        if new_lines.len() == 1 {
-            let display = preview_line(&new_lines[0], mode, generated_kind.is_some());
-            preview(&lines, idx.saturating_sub(1), idx.saturating_sub(1), Some(&display));
-        } else {
-            preview(&lines, idx.saturating_sub(1), idx.saturating_sub(1), None);
-            for l in &new_lines {
-                eprintln!("  ✚  {}", preview_line(l, mode, generated_kind.is_some()));
-            }
+        // Hard safety gate (pre-write): the file must parse and the simulated
+        // insert must land `<subject>.<path>` exactly at its path with
+        // nothing else changed. Unresolvable parent / mis-placed insertion
+        // ⇒ warn naming subject+path and exit non-zero WITHOUT writing.
+        let original_bytes = std::fs::read_to_string(f)?;
+        let expected_field = value_field(0, &token, mode);
+        let (range, ext) = subject_body_range(&lines, f, is_external, subject)
+            .map_err(|e| anyhow::anyhow!("{e} — no changes written"))?;
+        let before_tree = parse_subject_tree(&lines, range, ext, subject).map_err(|e| {
+            anyhow::anyhow!(
+                "cannot verify placement of `{subject} {path}` in {}: {e} — no changes written",
+                f.display()
+            )
+        })?;
+        let mut after_lines = lines.clone();
+        for (off, l) in new_lines.iter().enumerate() {
+            after_lines.insert(idx + off, l.clone());
         }
+        let after_tree = match subject_body_range(&after_lines, f, is_external, subject)
+            .map_err(|e| anyhow::anyhow!("{e} — no changes written"))
+            .and_then(|(r, e2)| parse_subject_tree(&after_lines, r, e2, subject))
+        {
+            Ok(t) => t,
+            Err(e) => bail!(
+                "cannot verify placement of `{subject} {path}` in {}: {e} — no changes written",
+                f.display()
+            ),
+        };
+        if let Err(e) =
+            assert_only_leaf_changed(&before_tree, &after_tree, subject, path, &expected_field)
+        {
+            bail!("{e} (in {})", f.display());
+        }
+        preview_insert(&lines, idx, &new_lines, mode, generated_kind.is_some());
         if !yes && !confirm("Insert this entry?")? {
             bail!("aborted — no changes written");
         }
@@ -1108,6 +1458,15 @@ fn set_errata(
             lines.insert(idx + off, l.clone());
         }
         write_lines(f, &lines)?;
+        post_write_verify_or_restore(
+            f,
+            &original_bytes,
+            &before_tree,
+            is_external,
+            subject,
+            path,
+            &expected_field,
+        )?;
         eprintln!("inserted {subject} {path} at {}:{}", f.display(), idx + 1);
         if let Some(kind) = generated_kind {
             println!("generated {kind} ({} chars) → {subject} {path}", plaintext.chars().count());
@@ -1140,6 +1499,24 @@ pub fn setall(
         None => None,
     };
 
+    // The insert payload must be a valid YAML mapping — parse it ONCE up
+    // front so a malformed payload can never reach a file.
+    let parsed_input: serde_yaml::Value = serde_yaml::from_str(yaml_input)
+        .map_err(|e| anyhow::anyhow!("setall input is not valid YAML: {e}"))?;
+    let input_map = match parsed_input {
+        serde_yaml::Value::Mapping(m) if !m.is_empty() => m,
+        serde_yaml::Value::Null => bail!("setall input is empty"),
+        _ => bail!("setall input must be a YAML mapping of `key: value` entries"),
+    };
+    let mut keys_with_values: Vec<(String, serde_yaml::Value)> = Vec::new();
+    for (k, v) in input_map.iter() {
+        let key = match k.as_str() {
+            Some(s) => s.to_string(),
+            None => bail!("setall input has a non-string key: {k:?}"),
+        };
+        keys_with_values.push((key, v.clone()));
+    }
+
     // Registered external files (reverse load order — last-loaded first), then
     // `.envrc*` files, unless --file pins the destination.
     for f in errata_candidates(&meta.external, &dir, forced.as_deref()) {
@@ -1153,7 +1530,9 @@ pub fn setall(
                 continue;
             }
             let lines = read_lines(&f)?;
-            if !locator::scan_blocks(&lines).iter().any(|b| b.subject == layer_subject)
+            if !locator::scan_blocks(&lines)
+                .iter()
+                .any(|b| b.subject == layer_subject)
                 && !locator::index_external_lines(&lines, &f)
                     .iter()
                     .any(|l| l.subject == layer_subject)
@@ -1163,7 +1542,10 @@ pub fn setall(
             lines
         } else {
             let lines = read_lines(&f)?;
-            if !locator::scan_blocks(&lines).iter().any(|b| b.subject == layer_subject) {
+            if !locator::scan_blocks(&lines)
+                .iter()
+                .any(|b| b.subject == layer_subject)
+            {
                 continue;
             }
             lines
@@ -1185,9 +1567,26 @@ pub fn setall(
         let Some(anchor) = locs.iter().find(|l| l.path == anchor_path) else {
             continue;
         };
+        // Bound of the subject's body, so a `--below` insert skips the
+        // anchor's whole subtree and never lands after trailing blanks or
+        // the next section's leading comment.
+        let body_end = if is_external {
+            locator::external_subject_spans(&lines)
+                .into_iter()
+                .find(|s| s.name == layer_subject)
+                .map(|s| s.body.end)
+        } else {
+            locator::scan_blocks(&lines)
+                .into_iter()
+                .find(|b| b.subject == layer_subject)
+                .map(|b| b.body.end)
+        };
         let indent = anchor.indent;
         let insert_at = if below {
-            if anchor.is_block_scalar { anchor.value_end + 1 } else { anchor.key_line + 1 }
+            match body_end {
+                Some(end) => subtree_end(&lines, anchor, end),
+                None => continue,
+            }
         } else {
             anchor.key_line
         };
@@ -1206,9 +1605,43 @@ pub fn setall(
             f.display(),
             insert_at + 1
         );
-        for l in &new_lines {
-            eprintln!("  ✚  {l}");
+        // Hard safety gate (pre-write), same contract as config set: the
+        // simulated insert must land every key at its path and change
+        // nothing else in the subject's tree.
+        let original_bytes = std::fs::read_to_string(&f)?;
+        let (range, ext) = subject_body_range(&lines, &f, is_external, layer_subject)
+            .map_err(|e| anyhow::anyhow!("{e} — no changes written"))?;
+        let before_tree = parse_subject_tree(&lines, range, ext, layer_subject).map_err(|e| {
+            anyhow::anyhow!(
+                "cannot verify placement in {}: {e} — no changes written",
+                f.display()
+            )
+        })?;
+        let mut after_lines = lines.clone();
+        for (off, l) in new_lines.iter().enumerate() {
+            after_lines.insert(insert_at + off, l.clone());
         }
+        let after_tree = match subject_body_range(&after_lines, &f, is_external, layer_subject)
+            .map_err(|e| anyhow::anyhow!("{e} — no changes written"))
+            .and_then(|(r, e2)| parse_subject_tree(&after_lines, r, e2, layer_subject))
+        {
+            Ok(t) => t,
+            Err(e) => bail!(
+                "cannot verify placement in {}: {e} — no changes written",
+                f.display()
+            ),
+        };
+        let parent = anchor.path.rsplit_once('.').map(|(p, _)| p);
+        if let Err(e) = assert_only_keys_added(
+            &before_tree,
+            &after_tree,
+            parent,
+            &keys_with_values,
+            layer_subject,
+        ) {
+            bail!("{e} (in {})", f.display());
+        }
+        preview_insert(&lines, insert_at, &new_lines, ValueMode::Plain, false);
         if !yes && !confirm("Insert this section?")? {
             bail!("aborted — no changes written");
         }
@@ -1217,6 +1650,29 @@ pub fn setall(
         out.extend_from_slice(&lines[insert_at..]);
         lines = out;
         write_lines(&f, &lines)?;
+        // Post-write gate: re-read from disk and re-assert; restore on mismatch.
+        let verify = (|| -> Result<()> {
+            let reread = read_lines(&f)?;
+            let (r, e2) = subject_body_range(&reread, &f, is_external, layer_subject)?;
+            let tree = parse_subject_tree(&reread, r, e2, layer_subject)?;
+            assert_only_keys_added(
+                &before_tree,
+                &tree,
+                parent,
+                &keys_with_values,
+                layer_subject,
+            )
+        })();
+        if let Err(e) = verify {
+            let restore = std::fs::write(&f, &original_bytes);
+            bail!(
+                "post-write verification failed: {e}; {}",
+                match restore {
+                    Ok(()) => "original file content restored".to_string(),
+                    Err(rerr) => format!("RESTORE FAILED — file may be inconsistent ({rerr})"),
+                }
+            );
+        }
         eprintln!("inserted section at {}:{}", f.display(), insert_at + 1);
         refresh_store(layer_subject, Some(&f))?;
         return Ok(());
@@ -1236,7 +1692,9 @@ mod tests {
     #[test]
     fn confirm_refuses_non_terminal_stdin() {
         // A non-interactive caller must get an error, not a silent "no" + exit 0.
-        let err = confirm_with("Apply?", false, &mut "y\n".as_bytes()).unwrap_err().to_string();
+        let err = confirm_with("Apply?", false, &mut "y\n".as_bytes())
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("--yes"), "{err}");
     }
 
@@ -1300,11 +1758,12 @@ mod tests {
 
     #[test]
     fn errata_inserts_under_existing_parent() {
-        let src = lines(
-            "dc_yaml --no-bump cf <<'YAML'\naccess:\n  client_id: pub\nzone: z\nYAML",
-        );
+        let src = lines("dc_yaml --no-bump cf <<'YAML'\naccess:\n  client_id: pub\nzone: z\nYAML");
         let token = crate::crypto::encode_token("BANANA", 0, &KEY).unwrap();
-        let (idx, line) = errata_compute(&src, "cf", "access.foobar", 0, &token, ValueMode::Encrypt).unwrap().unwrap();
+        let (idx, line) =
+            errata_compute(&src, "cf", "access.foobar", 0, &token, ValueMode::Encrypt)
+                .unwrap()
+                .unwrap();
         // Inserted after access.client_id (index 3), indented 2.
         assert_eq!(idx, 3);
         assert!(line.starts_with("  foobar: \"🔒 🔒:v1:"));
@@ -1319,7 +1778,9 @@ mod tests {
     fn errata_inserts_top_level_before_terminator() {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\naccount_id: 1\nYAML");
         let token = crate::crypto::encode_token("t", 0, &KEY).unwrap();
-        let (idx, line) = errata_compute(&src, "cf", "api_token", 0, &token, ValueMode::Encrypt).unwrap().unwrap();
+        let (idx, line) = errata_compute(&src, "cf", "api_token", 0, &token, ValueMode::Encrypt)
+            .unwrap()
+            .unwrap();
         assert_eq!(idx, 2); // the YAML terminator line index
         assert!(line.starts_with("api_token: \"🔒 🔒:v1:"));
     }
@@ -1338,7 +1799,10 @@ mod tests {
         let out = splice_set(&src, &loc, new_line);
         let line = out.iter().find(|l| l.contains("client_secret")).unwrap();
         assert_eq!(line, "  client_secret: \"literal-secret\"");
-        assert!(!line.contains(PADLOCK) && !line.contains('❗'), "no marker on a --plain line");
+        assert!(
+            !line.contains(PADLOCK) && !line.contains('❗'),
+            "no marker on a --plain line"
+        );
         assert!(!out.iter().any(|l| l.contains("old")), "stale token gone");
         assert!(out.iter().any(|l| l == "zone: z"), "siblings intact");
     }
@@ -1346,7 +1810,9 @@ mod tests {
     #[test]
     fn errata_plain_insert_has_no_marker() {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\naccount_id: 1\nYAML");
-        let (idx, line) = errata_compute(&src, "cf", "api_token", 0, "BANANA", ValueMode::Plain).unwrap().unwrap();
+        let (idx, line) = errata_compute(&src, "cf", "api_token", 0, "BANANA", ValueMode::Plain)
+            .unwrap()
+            .unwrap();
         assert_eq!(idx, 2);
         assert_eq!(line, "api_token: \"BANANA\"");
     }
@@ -1355,7 +1821,10 @@ mod tests {
     fn display_line_shows_literal_values_redacts_tokens() {
         // --plain / --numeric lines show their value verbatim — the user
         // chose an exposed value, and the preview must match the file.
-        assert_eq!(display_line("  api_key: \"hunter2\"", ValueMode::Plain), "  api_key: \"hunter2\"");
+        assert_eq!(
+            display_line("  api_key: \"hunter2\"", ValueMode::Plain),
+            "  api_key: \"hunter2\""
+        );
         assert_eq!(display_line("  bip: 4", ValueMode::Numeric), "  bip: 4");
         // structure-only chain lines pass through in every mode
         assert_eq!(display_line("  jev:", ValueMode::Plain), "  jev:");
@@ -1372,14 +1841,33 @@ mod tests {
 
     #[test]
     fn validate_numeric_accepts_yaml_number_spellings() {
-        for ok in ["4", "-3", "2.5", "1e3", "0", "+7", ".5", "4.", "-0.25", "6.02e23", " 8 "] {
-            assert_eq!(validate_numeric(ok).unwrap(), ok.trim(), "`{ok}` must be accepted");
+        for ok in [
+            "4", "-3", "2.5", "1e3", "0", "+7", ".5", "4.", "-0.25", "6.02e23", " 8 ",
+        ] {
+            assert_eq!(
+                validate_numeric(ok).unwrap(),
+                ok.trim(),
+                "`{ok}` must be accepted"
+            );
         }
     }
 
     #[test]
     fn validate_numeric_rejects_non_numbers_and_non_finite() {
-        for bad in ["abc", "", "NaN", "nan", "inf", "-Infinity", "1e", "e3", "4-5", "1 2", "0x10", "true"] {
+        for bad in [
+            "abc",
+            "",
+            "NaN",
+            "nan",
+            "inf",
+            "-Infinity",
+            "1e",
+            "e3",
+            "4-5",
+            "1 2",
+            "0x10",
+            "true",
+        ] {
             let err = validate_numeric(bad).unwrap_err().to_string();
             assert!(err.contains("--numeric"), "`{bad}` must be rejected: {err}");
         }
@@ -1388,9 +1876,14 @@ mod tests {
     #[test]
     fn numeric_leaf_writes_unquoted_scalar() {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\nfoo:\n  bar:\n    bop: 2\nYAML\n");
-        let (idx, line) = errata_compute(&src, "cf", "foo.bar.bip", 0, "4", ValueMode::Numeric).unwrap().unwrap();
+        let (idx, line) = errata_compute(&src, "cf", "foo.bar.bip", 0, "4", ValueMode::Numeric)
+            .unwrap()
+            .unwrap();
         assert_eq!(idx, 4, "after bop, before the terminator");
-        assert_eq!(line, "    bip: 4", "numeric leaves are bare scalars — no quotes, no marker");
+        assert_eq!(
+            line, "    bip: 4",
+            "numeric leaves are bare scalars — no quotes, no marker"
+        );
         // overwrite path: an existing encrypted line becomes a bare number
         let loc = locate(&src, "cf", "foo.bar.bop");
         let new_line = compute_set_line(&loc, 0, "-2.5", ValueMode::Numeric);
@@ -1409,7 +1902,9 @@ mod tests {
 
     #[test]
     fn validate_bool_rejects_everything_else() {
-        for bad in ["yes", "no", "1", "0", "on", "off", "", "truee", "Maybe", "tru"] {
+        for bad in [
+            "yes", "no", "1", "0", "on", "off", "", "truee", "Maybe", "tru",
+        ] {
             let err = validate_bool(bad).unwrap_err().to_string();
             assert!(err.contains("--bool"), "`{bad}` must be rejected: {err}");
         }
@@ -1419,9 +1914,14 @@ mod tests {
     fn bool_leaf_writes_unquoted_normalized_scalar() {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\nfoo:\n  bar:\n    bip: \"4\"\nYAML\n");
         // set() normalizes via validate_bool before these helpers run.
-        let (idx, line) = errata_compute(&src, "cf", "foo.bar.flag", 0, "true", ValueMode::Bool).unwrap().unwrap();
+        let (idx, line) = errata_compute(&src, "cf", "foo.bar.flag", 0, "true", ValueMode::Bool)
+            .unwrap()
+            .unwrap();
         assert_eq!(idx, 4);
-        assert_eq!(line, "    flag: true", "bool leaves are lowercase bare scalars");
+        assert_eq!(
+            line, "    flag: true",
+            "bool leaves are lowercase bare scalars"
+        );
         // overwrite path: an existing quoted line becomes a bare boolean
         let loc = locate(&src, "cf", "foo.bar.bip");
         let new_line = compute_set_line(&loc, 0, "false", ValueMode::Bool);
@@ -1474,16 +1974,30 @@ mod tests {
     use tempfile::TempDir;
 
     fn ext(p: &std::path::Path) -> ExternalFile {
-        ExternalFile { path: p.to_path_buf(), mtime: 0, size: 0, layer: None, if_missing: false }
+        ExternalFile {
+            path: p.to_path_buf(),
+            mtime: 0,
+            size: 0,
+            layer: None,
+            if_missing: false,
+        }
     }
 
     #[test]
     fn find_locs_in_spans_envrc_and_registered_external() {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path();
-        std::fs::write(dir.join(".envrc"), "dc_yaml --no-bump app <<'YAML'\nhost: local\nYAML\n").unwrap();
+        std::fs::write(
+            dir.join(".envrc"),
+            "dc_yaml --no-bump app <<'YAML'\nhost: local\nYAML\n",
+        )
+        .unwrap();
         let extfile = dir.join("team.yaml");
-        std::fs::write(&extfile, "app:\n  # db config\n  db:\n    host: \"🔒❗ tok\"\n").unwrap();
+        std::fs::write(
+            &extfile,
+            "app:\n  # db config\n  db:\n    host: \"🔒❗ tok\"\n",
+        )
+        .unwrap();
         let external = vec![ext(&extfile)];
 
         let locs = find_locs_in(dir, &external, "app", "db.host");
@@ -1497,7 +2011,11 @@ mod tests {
         let external2 = vec![ext(&gone), ext(&extfile)];
         let locs2 = find_locs_in(dir, &external2, "app", "host");
         assert_eq!(locs2.len(), 1);
-        assert!(locs2[0].file.ends_with(".envrc"), "{}", locs2[0].file.display());
+        assert!(
+            locs2[0].file.ends_with(".envrc"),
+            "{}",
+            locs2[0].file.display()
+        );
         assert_eq!(locs2[0].key_line, 1);
     }
 
@@ -1541,7 +2059,10 @@ mod tests {
         assert_eq!(out[0], "app:");
         assert_eq!(out[1], "  # tuning");
         assert_eq!(out[2], "  pool: 5");
-        assert!(out[3].starts_with("  host: \""), "host line replaced in place");
+        assert!(
+            out[3].starts_with("  host: \""),
+            "host line replaced in place"
+        );
         assert!(!out[3].contains("old-tok"), "stale token gone");
         assert_eq!(out[4], "  # trailing note");
     }
@@ -1568,8 +2089,18 @@ mod tests {
         let spans = locator::external_subject_spans(&lines);
         let locs = locator::index_external_lines(&lines, &a);
         let token = crate::crypto::encode_token("v", 0, &KEY).unwrap();
-        let (idx, line) =
-            external_errata_compute(&lines, &locs, &spans, "app", "api_key", 0, &token, ValueMode::Encrypt).unwrap().unwrap();
+        let (idx, line) = external_errata_compute(
+            &lines,
+            &locs,
+            &spans,
+            "app",
+            "api_key",
+            0,
+            &token,
+            ValueMode::Encrypt,
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(idx, 2, "after `host: one` (line 1)");
         assert!(line.starts_with("  api_key: \"🔒 🔒:v1:"));
     }
@@ -1582,18 +2113,43 @@ mod tests {
         let locs = locator::index_external_lines(&src, file);
         let token = crate::crypto::encode_token("v", 0, &KEY).unwrap();
 
-        // Parent path: inserted after db's subtree (comments skipped), indent parent+2.
-        let (idx, line) =
-            external_errata_compute(&src, &locs, &spans, "app", "db.port", 0, &token, ValueMode::Encrypt).unwrap().unwrap();
-        assert_eq!(idx, 4, "after the trailing comment, before `other:`");
+        // Parent path: inserted directly after db's last child line — before
+        // the trailing comment that leads the next section (indent <= the
+        // parent's stops the subtree walk).
+        let (idx, line) = external_errata_compute(
+            &src,
+            &locs,
+            &spans,
+            "app",
+            "db.port",
+            0,
+            &token,
+            ValueMode::Encrypt,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            idx, 3,
+            "right after `host: h`, before the trailing `# note` comment"
+        );
         assert!(line.starts_with("    port: \"🔒 🔒:v1:"));
 
         // Subject with an empty body: insert directly under the subject line.
         let src2 = lines("app:\n  x: 1\nboot:\n");
         let spans2 = locator::external_subject_spans(&src2);
         let locs2 = locator::index_external_lines(&src2, file);
-        let (idx2, line2) =
-            external_errata_compute(&src2, &locs2, &spans2, "boot", "api_key", 0, &token, ValueMode::Encrypt).unwrap().unwrap();
+        let (idx2, line2) = external_errata_compute(
+            &src2,
+            &locs2,
+            &spans2,
+            "boot",
+            "api_key",
+            0,
+            &token,
+            ValueMode::Encrypt,
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(idx2, 3, "after `boot:` (line 2, the last line)");
         assert!(line2.starts_with("  api_key: \"🔒 🔒:v1:"));
     }
@@ -1626,7 +2182,11 @@ mod tests {
         )];
 
         let jobs = refresh_jobs("app", &envrc, &external, &docs).unwrap();
-        assert_eq!(jobs.len(), 1, "only the plain (non-if-missing) heredoc survives");
+        assert_eq!(
+            jobs.len(),
+            1,
+            "only the plain (non-if-missing) heredoc survives"
+        );
         assert_eq!(jobs[0].file, PathBuf::from("/x/.envrc"));
         for j in &jobs {
             assert!(
@@ -1652,10 +2212,17 @@ mod tests {
         }];
         let jobs = refresh_jobs("app", &[], &external, &docs).unwrap();
         assert_eq!(jobs.len(), 1);
-        assert_eq!(jobs[0].layer, "staging", "recorded load layer must be replayed");
+        assert_eq!(
+            jobs[0].layer, "staging",
+            "recorded load layer must be replayed"
+        );
 
         // No layer recorded (incl. pre-options registry entries) -> base.
-        let external2 = vec![ExternalFile { layer: None, if_missing: false, ..external[0].clone() }];
+        let external2 = vec![ExternalFile {
+            layer: None,
+            if_missing: false,
+            ..external[0].clone()
+        }];
         let jobs2 = refresh_jobs("app", &[], &external2, &docs).unwrap();
         assert_eq!(jobs2[0].layer, "base");
     }
@@ -1727,9 +2294,13 @@ mod tests {
         // subject through the body's `_dc_layer`, not the file default.
         refresh_store("app", None).unwrap();
 
-        let staging = crate::store::load_layer(&crate::store::layout::layer_path(&store, "app", "staging"))
-            .unwrap();
-        assert_eq!(staging.get("runner"), Some(&serde_yaml::Value::String("linux".into())));
+        let staging =
+            crate::store::load_layer(&crate::store::layout::layer_path(&store, "app", "staging"))
+                .unwrap();
+        assert_eq!(
+            staging.get("runner"),
+            Some(&serde_yaml::Value::String("linux".into()))
+        );
         let base_path = crate::store::layout::layer_path(&store, "app", "base");
         assert!(
             !base_path.exists(),
@@ -1767,34 +2338,25 @@ mod tests {
         std::env::set_current_dir(&proj).unwrap();
 
         let store = crate::store::layout::ensure_store(&proj).unwrap();
-        let opts = crate::cmd::load::IngestOpts { if_missing: true, ..Default::default() };
-        crate::cmd::load::load_files(
-            &store,
-            std::slice::from_ref(&seed),
-            &opts,
-            &|| anyhow::bail!("no key needed for plain bodies"),
-        )
+        let opts = crate::cmd::load::IngestOpts {
+            if_missing: true,
+            ..Default::default()
+        };
+        crate::cmd::load::load_files(&store, std::slice::from_ref(&seed), &opts, &|| {
+            anyhow::bail!("no key needed for plain bodies")
+        })
         .unwrap();
 
         // Store-side mutation of the seeded key (what --if-missing ownership means).
         let mutated: serde_yaml::Value = serde_yaml::from_str("token: rotated-by-store\n").unwrap();
-        crate::cmd::yaml::apply(
-            &store,
-            "app",
-            "base",
-            &mutated,
-            &[],
-            None,
-            false,
-            None,
-        )
-        .unwrap();
+        crate::cmd::yaml::apply(&store, "app", "base", &mutated, &[], None, false, None).unwrap();
 
         // A refresh triggered by editing any key of the subject must not revert it.
         refresh_store("app", None).unwrap();
 
-        let base = crate::store::load_layer(&crate::store::layout::layer_path(&store, "app", "base"))
-            .unwrap();
+        let base =
+            crate::store::load_layer(&crate::store::layout::layer_path(&store, "app", "base"))
+                .unwrap();
         assert_eq!(
             crate::yaml::path::get_path(&base, "token"),
             Some(serde_yaml::Value::String("rotated-by-store".into())),
@@ -1842,9 +2404,20 @@ mod parents_tests {
         let src = lines(FIXTURE);
         let locs = locs_of(&src);
         let tok = token_of("S3cr3t");
-        let (idx, chain) =
-            parents_compute(&src, &locs, "cf", "inference.jev.api_key", 0, &tok, ValueMode::Encrypt, 5, 0,
-                            &Placement::Below("sendgrid".into())).unwrap();
+        let (idx, chain) = parents_compute(
+            &src,
+            &locs,
+            "cf",
+            "inference.jev.api_key",
+            0,
+            &tok,
+            ValueMode::Encrypt,
+            1,
+            5,
+            0,
+            &Placement::Below("sendgrid".into()),
+        )
+        .unwrap();
         assert_eq!(idx, 3, "after sendgrid's subtree (stripe: comes next)");
         assert_eq!(chain[0], "inference:");
         assert_eq!(chain[1], "  jev:");
@@ -1860,9 +2433,20 @@ mod parents_tests {
         let src = lines(FIXTURE);
         let locs = locs_of(&src);
         let tok = token_of("v");
-        let (idx, _) =
-            parents_compute(&src, &locs, "cf", "a.b.c", 0, &tok, ValueMode::Encrypt, 5, 0,
-                            &Placement::Above("stripe".into())).unwrap();
+        let (idx, _) = parents_compute(
+            &src,
+            &locs,
+            "cf",
+            "a.b.c",
+            0,
+            &tok,
+            ValueMode::Encrypt,
+            1,
+            5,
+            0,
+            &Placement::Above("stripe".into()),
+        )
+        .unwrap();
         assert_eq!(idx, 3, "directly before `stripe:`");
     }
 
@@ -1872,16 +2456,52 @@ mod parents_tests {
         let locs = locs_of(&src);
         let tok = token_of("v");
         // before sendgrid (first sibling)
-        let (idx, _) = parents_compute(&src, &locs, "cf", "aaa.key", 0, &tok, ValueMode::Encrypt, 5, 0,
-                                       &Placement::Auto).unwrap();
+        let (idx, _) = parents_compute(
+            &src,
+            &locs,
+            "cf",
+            "aaa.key",
+            0,
+            &tok,
+            ValueMode::Encrypt,
+            1,
+            5,
+            0,
+            &Placement::Auto,
+        )
+        .unwrap();
         assert_eq!(idx, 1);
         // between sendgrid and stripe (smoke sorts between them)
-        let (idx, _) = parents_compute(&src, &locs, "cf", "smoke.key", 0, &tok, ValueMode::Encrypt, 5, 0,
-                                       &Placement::Auto).unwrap();
+        let (idx, _) = parents_compute(
+            &src,
+            &locs,
+            "cf",
+            "smoke.key",
+            0,
+            &tok,
+            ValueMode::Encrypt,
+            1,
+            5,
+            0,
+            &Placement::Auto,
+        )
+        .unwrap();
         assert_eq!(idx, 3);
         // appended at the end, before the terminator
-        let (idx, _) = parents_compute(&src, &locs, "cf", "zzz.key", 0, &tok, ValueMode::Encrypt, 5, 0,
-                                       &Placement::Auto).unwrap();
+        let (idx, _) = parents_compute(
+            &src,
+            &locs,
+            "cf",
+            "zzz.key",
+            0,
+            &tok,
+            ValueMode::Encrypt,
+            1,
+            5,
+            0,
+            &Placement::Auto,
+        )
+        .unwrap();
         assert_eq!(idx, 5);
     }
 
@@ -1890,8 +2510,20 @@ mod parents_tests {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\ntop: 1\nYAML\n");
         let locs = locs_of(&src);
         let tok = token_of("v");
-        let (idx, chain) = parents_compute(&src, &locs, "cf", "x.a.b", 0, &tok, ValueMode::Encrypt, 3, 0,
-                                           &Placement::Auto).unwrap();
+        let (idx, chain) = parents_compute(
+            &src,
+            &locs,
+            "cf",
+            "x.a.b",
+            0,
+            &tok,
+            ValueMode::Encrypt,
+            1,
+            3,
+            0,
+            &Placement::Auto,
+        )
+        .unwrap();
         assert_eq!(idx, 2, "before the YAML terminator");
         assert_eq!(chain[0], "x:");
         assert_eq!(chain[1], "  a:");
@@ -1904,18 +2536,54 @@ mod parents_tests {
         let locs = locs_of(&src);
         let tok = token_of("v");
         // jev < kv alphabetically → inserted before kv, nested under inference
-        let (idx, chain) = parents_compute(&src, &locs, "cf", "inference.jev.api_key", 0, &tok, ValueMode::Encrypt, 3, 0,
-                                           &Placement::Auto).unwrap();
+        let (idx, chain) = parents_compute(
+            &src,
+            &locs,
+            "cf",
+            "inference.jev.api_key",
+            0,
+            &tok,
+            ValueMode::Encrypt,
+            1,
+            3,
+            0,
+            &Placement::Auto,
+        )
+        .unwrap();
         assert_eq!(idx, 2);
         assert_eq!(chain[0], "  jev:");
         assert!(chain[1].starts_with("    api_key: \"🔒 🔒:v1:"));
         // anchor at the wrong level is rejected when a prefix exists
-        let err = parents_compute(&src, &locs, "cf", "inference.jev.api_key", 0, &tok, ValueMode::Encrypt, 3, 0,
-                                  &Placement::Below("inference".into())).unwrap_err();
+        let err = parents_compute(
+            &src,
+            &locs,
+            "cf",
+            "inference.jev.api_key",
+            0,
+            &tok,
+            ValueMode::Encrypt,
+            1,
+            3,
+            0,
+            &Placement::Below("inference".into()),
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("not a sibling"), "{err}");
         // sibling-level anchor under the prefix is honoured
-        let (idx, chain) = parents_compute(&src, &locs, "cf", "inference.alpha.api_key", 0, &tok, ValueMode::Encrypt, 3, 0,
-                                           &Placement::Below("inference.kv".into())).unwrap();
+        let (idx, chain) = parents_compute(
+            &src,
+            &locs,
+            "cf",
+            "inference.alpha.api_key",
+            0,
+            &tok,
+            ValueMode::Encrypt,
+            1,
+            3,
+            0,
+            &Placement::Below("inference.kv".into()),
+        )
+        .unwrap();
         assert_eq!(idx, 3, "after kv's subtree");
         assert_eq!(chain[0], "  alpha:");
     }
@@ -1925,8 +2593,20 @@ mod parents_tests {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\ngrp:\n  zed: z\nYAML\n");
         let locs = locs_of(&src);
         let tok = token_of("v");
-        let (idx, chain) = parents_compute(&src, &locs, "cf", "grp.aaa", 0, &tok, ValueMode::Encrypt, 3, 0,
-                                           &Placement::Auto).unwrap();
+        let (idx, chain) = parents_compute(
+            &src,
+            &locs,
+            "cf",
+            "grp.aaa",
+            0,
+            &tok,
+            ValueMode::Encrypt,
+            1,
+            3,
+            0,
+            &Placement::Auto,
+        )
+        .unwrap();
         assert_eq!(idx, 2, "aaa < zed → before zed");
         assert_eq!(chain.len(), 1);
         assert!(chain[0].starts_with("  aaa: \"🔒 🔒:v1:"));
@@ -1936,8 +2616,20 @@ mod parents_tests {
     fn plain_parents_leaf_has_no_marker() {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\ngrp:\n  zed: z\nYAML\n");
         let locs = locs_of(&src);
-        let (idx, chain) = parents_compute(&src, &locs, "cf", "grp.aaa", 0, "S3cr3t", ValueMode::Plain, 3, 0,
-                                           &Placement::Auto).unwrap();
+        let (idx, chain) = parents_compute(
+            &src,
+            &locs,
+            "cf",
+            "grp.aaa",
+            0,
+            "S3cr3t",
+            ValueMode::Plain,
+            1,
+            3,
+            0,
+            &Placement::Auto,
+        )
+        .unwrap();
         assert_eq!(idx, 2);
         assert_eq!(chain.len(), 1);
         assert_eq!(chain[0], "  aaa: \"S3cr3t\"");
@@ -1947,11 +2639,26 @@ mod parents_tests {
     fn numeric_parents_leaf_is_a_bare_scalar() {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\ngrp:\n  zed: z\nYAML\n");
         let locs = locs_of(&src);
-        let (idx, chain) = parents_compute(&src, &locs, "cf", "grp.aaa", 0, "42", ValueMode::Numeric, 3, 0,
-                                           &Placement::Auto).unwrap();
+        let (idx, chain) = parents_compute(
+            &src,
+            &locs,
+            "cf",
+            "grp.aaa",
+            0,
+            "42",
+            ValueMode::Numeric,
+            1,
+            3,
+            0,
+            &Placement::Auto,
+        )
+        .unwrap();
         assert_eq!(idx, 2);
         assert_eq!(chain.len(), 1);
-        assert_eq!(chain[0], "  aaa: 42", "numeric leaves are unquoted YAML numbers");
+        assert_eq!(
+            chain[0], "  aaa: 42",
+            "numeric leaves are unquoted YAML numbers"
+        );
     }
 
     #[test]
@@ -1959,9 +2666,24 @@ mod parents_tests {
         let src = lines(FIXTURE);
         let locs = locs_of(&src);
         let tok = token_of("v");
-        let err = parents_compute(&src, &locs, "cf", "x.y.z", 0, &tok, ValueMode::Encrypt, 5, 0,
-                                  &Placement::Below("mailgun".into())).unwrap_err();
-        assert!(err.to_string().contains("anchor `mailgun` not found"), "{err}");
+        let err = parents_compute(
+            &src,
+            &locs,
+            "cf",
+            "x.y.z",
+            0,
+            &tok,
+            ValueMode::Encrypt,
+            1,
+            5,
+            0,
+            &Placement::Below("mailgun".into()),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("anchor `mailgun` not found"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -1973,9 +2695,20 @@ mod parents_tests {
         let tok = token_of("v");
         let span = spans.iter().find(|s| s.name == "app").unwrap();
         let top = span.child_indent.unwrap_or(span.indent + 2);
-        let (idx, chain) = parents_compute(&src, &locs, "app", "db.conn.host", 0, &tok, ValueMode::Encrypt,
-                                           span.body.end, top,
-                                           &Placement::Below("name".into())).unwrap();
+        let (idx, chain) = parents_compute(
+            &src,
+            &locs,
+            "app",
+            "db.conn.host",
+            0,
+            &tok,
+            ValueMode::Encrypt,
+            span.body.start,
+            span.body.end,
+            top,
+            &Placement::Below("name".into()),
+        )
+        .unwrap();
         assert_eq!(idx, 2, "after name's subtree (span end)");
         assert_eq!(chain[0], "  db:");
         assert_eq!(chain[1], "    conn:");
@@ -1988,9 +2721,15 @@ mod parents_tests {
     fn quoted_keys_are_indexed_unquoted_with_raw_text_preserved() {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\n\"anthropic\":\n  \"trr\": old\nYAML\n");
         let locs = locs_of(&src);
-        let section = locs.iter().find(|l| l.path == "anthropic").expect("quoted section indexed");
+        let section = locs
+            .iter()
+            .find(|l| l.path == "anthropic")
+            .expect("quoted section indexed");
         assert_eq!(section.raw_key, "\"anthropic\"");
-        let leaf = locs.iter().find(|l| l.path == "anthropic.trr").expect("quoted leaf indexed");
+        let leaf = locs
+            .iter()
+            .find(|l| l.path == "anthropic.trr")
+            .expect("quoted leaf indexed");
         assert_eq!(leaf.raw_key, "\"trr\"");
         // Rewrites keep the quotes.
         let new_line = compute_set_line(leaf, 0, "tok", ValueMode::Plain);
@@ -2003,8 +2742,20 @@ mod parents_tests {
         let locs = locs_of(&src);
         let tok = token_of("v");
         // keys < model alphabetically → chain inserted before the model child
-        let (idx, chain) = parents_compute(&src, &locs, "cf", "anthropic.keys.trr", 0, &tok,
-                                           ValueMode::Encrypt, 3, 0, &Placement::Auto).unwrap();
+        let (idx, chain) = parents_compute(
+            &src,
+            &locs,
+            "cf",
+            "anthropic.keys.trr",
+            0,
+            &tok,
+            ValueMode::Encrypt,
+            1,
+            3,
+            0,
+            &Placement::Auto,
+        )
+        .unwrap();
         assert_eq!(idx, 2);
         assert_eq!(chain[0], "  keys:");
         assert!(chain[1].starts_with("    trr: \"🔒 🔒:v1:"));
@@ -2015,9 +2766,24 @@ mod parents_tests {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\ngrp:\n  keys: \"v\"\nYAML\n");
         let locs = locs_of(&src);
         let tok = token_of("v");
-        let err = parents_compute(&src, &locs, "cf", "grp.keys.trr", 0, &tok, ValueMode::Encrypt, 3, 0,
-                                  &Placement::Auto).unwrap_err();
-        assert!(err.to_string().contains("already holds a scalar value"), "{err}");
+        let err = parents_compute(
+            &src,
+            &locs,
+            "cf",
+            "grp.keys.trr",
+            0,
+            &tok,
+            ValueMode::Encrypt,
+            1,
+            3,
+            0,
+            &Placement::Auto,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("already holds a scalar value"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -2025,8 +2791,20 @@ mod parents_tests {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\ngrp:\n  keys: |\n    text\nYAML\n");
         let locs = locs_of(&src);
         let tok = token_of("v");
-        let err = parents_compute(&src, &locs, "cf", "grp.keys.trr", 0, &tok, ValueMode::Encrypt, 4, 0,
-                                  &Placement::Auto).unwrap_err();
+        let err = parents_compute(
+            &src,
+            &locs,
+            "cf",
+            "grp.keys.trr",
+            0,
+            &tok,
+            ValueMode::Encrypt,
+            1,
+            4,
+            0,
+            &Placement::Auto,
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("block-scalar value"), "{err}");
     }
 
@@ -2035,8 +2813,20 @@ mod parents_tests {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\ngrp:\n  keys:\nYAML\n");
         let locs = locs_of(&src);
         let tok = token_of("v");
-        let (idx, chain) = parents_compute(&src, &locs, "cf", "grp.keys.trr", 0, &tok,
-                                           ValueMode::Encrypt, 3, 0, &Placement::Auto).unwrap();
+        let (idx, chain) = parents_compute(
+            &src,
+            &locs,
+            "cf",
+            "grp.keys.trr",
+            0,
+            &tok,
+            ValueMode::Encrypt,
+            1,
+            3,
+            0,
+            &Placement::Auto,
+        )
+        .unwrap();
         assert_eq!(idx, 3, "right after the null key");
         assert_eq!(chain.len(), 1);
         assert!(chain[0].starts_with("    trr: \"🔒 🔒:v1:"));
@@ -2045,7 +2835,11 @@ mod parents_tests {
     #[test]
     fn errata_under_scalar_parent_is_refused() {
         let src = lines("dc_yaml --no-bump cf <<'YAML'\ngrp:\n  keys: \"v\"\nYAML\n");
-        let err = errata_compute(&src, "cf", "grp.keys.trr", 0, "tok", ValueMode::Plain).unwrap_err();
-        assert!(err.to_string().contains("already holds a scalar value"), "{err}");
+        let err =
+            errata_compute(&src, "cf", "grp.keys.trr", 0, "tok", ValueMode::Plain).unwrap_err();
+        assert!(
+            err.to_string().contains("already holds a scalar value"),
+            "{err}"
+        );
     }
 }
