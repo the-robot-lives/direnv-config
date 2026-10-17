@@ -46,6 +46,26 @@ fn resolve_pointer(val: &str, depth: usize) -> Option<String> {
     dc_lookup_raw(target_name, target_path, depth - 1)
 }
 
+/// Resolve a config path to its stored node (mapping, sequence or scalar).
+/// Pointers (`🔗`) are resolved for scalar results only — a subtree is
+/// returned as-is so `--reveal` can walk it.
+fn dc_lookup_node(name: &str, path: &str) -> Option<serde_yaml::Value> {
+    let store = crate::store::find_current_store().ok()?;
+    let chain = crate::store::resolve::resolve_chain(&store);
+    let config = crate::store::resolve::resolve_config(&chain, name).ok()?;
+    let val = crate::yaml::path::get_path(&config, path)?;
+    match &val {
+        serde_yaml::Value::Mapping(_) | serde_yaml::Value::Sequence(_) => Some(val),
+        serde_yaml::Value::String(s) => {
+            resolve_pointer(s, MAX_POINTER_DEPTH).map(serde_yaml::Value::String)
+        }
+        serde_yaml::Value::Number(n) => Some(serde_yaml::Value::String(n.to_string())),
+        serde_yaml::Value::Bool(b) => Some(serde_yaml::Value::String(b.to_string())),
+        serde_yaml::Value::Null => None,
+        _ => None,
+    }
+}
+
 /// Resolve a config path to its decrypted plaintext (internal API for
 /// compare/push/infisical). Decrypts `🔒:` tokens; passes plain values
 /// through. Does NOT write an audit record — callers audit their own reveals.
@@ -150,6 +170,124 @@ fn emit_value(
     Ok(())
 }
 
+/// Render one leaf of a subtree for `--reveal`: encrypted leaves decrypt
+/// (audited like a scalar reveal), ⛔ leaves honour `reveal_restricted`,
+/// pointers resolve, plain leaves pass through.
+fn render_leaf(
+    name: &str,
+    leaf_path: &str,
+    val: &str,
+    reveal: bool,
+    reveal_restricted: bool,
+) -> Result<String> {
+    // Restricted (⛔ shadowed) value — stricter than a normal secret.
+    if crate::secret::is_restricted_sentinel(val) {
+        if reveal_restricted {
+            return match crate::shadow::resolve(name, leaf_path)? {
+                Some(plain) => {
+                    crate::audit::record(name, leaf_path, 3, "reveal-restricted");
+                    Ok(plain)
+                }
+                None => anyhow::bail!(
+                    "restricted secret {name}.{leaf_path} has no entry in the shadow store"
+                ),
+            };
+        }
+        crate::audit::record(name, leaf_path, 3, "redact-restricted-attempt");
+        return Ok("⛔ **restricted**".to_string());
+    }
+    // Pointers resolve to their target scalar first (same as the scalar path).
+    let val = resolve_pointer(val, MAX_POINTER_DEPTH).unwrap_or_else(|| val.to_string());
+    if crate::crypto::is_encrypted(&val) {
+        let tier = crate::crypto::token_tier(&val).unwrap_or(0);
+        if reveal {
+            let key = crate::settings::key()?;
+            let (_t, plain) = crate::crypto::decode_token(&val, &key)
+                .map_err(|e| anyhow::anyhow!("failed to decrypt {name}.{leaf_path}: {e}"))?;
+            crate::audit::record(name, leaf_path, tier, "reveal");
+            return Ok(plain);
+        }
+        // Without --reveal the tree is printed unchanged (tokens stay).
+        return Ok(val);
+    }
+    Ok(val)
+}
+
+/// Recursively render a subtree for `--reveal`: every encrypted leaf is
+/// decrypted (audited per leaf), plain leaves / structure / keys pass
+/// through. A leaf that fails to decrypt aborts with a per-leaf error
+/// before anything is printed.
+fn reveal_subtree(
+    name: &str,
+    prefix: &str,
+    val: &serde_yaml::Value,
+    reveal: bool,
+    reveal_restricted: bool,
+) -> Result<serde_yaml::Value> {
+    match val {
+        serde_yaml::Value::Mapping(map) => {
+            let mut out = serde_yaml::Mapping::new();
+            for (k, v) in map {
+                let child_prefix = match k.as_str() {
+                    Some(key) if prefix.is_empty() => key.to_string(),
+                    Some(key) => format!("{prefix}.{key}"),
+                    // Non-string keys are passed through untouched.
+                    None => String::new(),
+                };
+                let rendered = if child_prefix.is_empty() {
+                    v.clone()
+                } else {
+                    reveal_subtree(name, &child_prefix, v, reveal, reveal_restricted)?
+                };
+                out.insert(k.clone(), rendered);
+            }
+            Ok(serde_yaml::Value::Mapping(out))
+        }
+        serde_yaml::Value::Sequence(seq) => {
+            let mut out = Vec::with_capacity(seq.len());
+            for (i, v) in seq.iter().enumerate() {
+                out.push(reveal_subtree(
+                    name,
+                    &format!("{prefix}[{i}]"),
+                    v,
+                    reveal,
+                    reveal_restricted,
+                )?);
+            }
+            Ok(serde_yaml::Value::Sequence(out))
+        }
+        serde_yaml::Value::String(s) => Ok(serde_yaml::Value::String(render_leaf(
+            name, prefix, s, reveal, reveal_restricted,
+        )?)),
+        other => Ok(other.clone()),
+    }
+}
+
+/// Emit a resolved section (mapping/sequence): `--reveal`/`--clippy`
+/// decrypt every encrypted leaf in the subtree; without them the caller
+/// keeps the legacy raw dump. Output is the YAML of the (decrypted) subtree
+/// — `--raw` is a no-op for sections (raw only affects scalar trailing
+/// newline handling).
+fn emit_subtree(
+    name: &str,
+    path: &str,
+    val: &serde_yaml::Value,
+    reveal: bool,
+    clippy: bool,
+    reveal_restricted: bool,
+) -> Result<()> {
+    let rendered = reveal_subtree(name, path, val, reveal || clippy, reveal_restricted)?;
+    let body = serde_yaml::to_string(&rendered)?;
+    if clippy {
+        copy_to_clipboard(&body)?;
+        crate::audit::record(name, path, 0, "clippy-section");
+        eprintln!("dc: section {name}.{path} copied to clipboard (decrypted)");
+        return Ok(());
+    }
+    print!("{body}");
+    Ok(())
+}
+
 fn env_lookup(var: &str) -> Option<String> {
     std::env::var(var).ok().filter(|v| !v.is_empty())
 }
@@ -218,6 +356,17 @@ pub fn run(
         print!("{}", serde_yaml::to_string(&config)?);
         return Ok(());
     };
+
+    // Sections (mappings/sequences) under --reveal/--clippy: decrypt every
+    // encrypted leaf in the subtree. Without those flags the legacy raw dump
+    // is kept byte-identical (tokens visible).
+    if reveal || clippy {
+        if let Some(node) = dc_lookup_node(name, p) {
+            if node.is_mapping() || node.is_sequence() {
+                return emit_subtree(name, p, &node, reveal, clippy, reveal_restricted);
+            }
+        }
+    }
 
     // Resolution: --override (ENV → dc) or --fallback (dc → ENV) or dc-only
     let resolved = if let Some(var) = override_var {

@@ -73,7 +73,10 @@ enum Commands {
         /// Static default if all sources miss (lower priority than --auto)
         #[arg(long, value_name = "VALUE")]
         default: Option<String>,
-        /// Decrypt and print an encrypted secret value (audited)
+        /// Decrypt and print an encrypted secret value (audited); on a
+        /// SECTION path, decrypt every encrypted leaf in the subtree
+        /// (audited per leaf; output is the subtree YAML — --raw is a
+        /// no-op there; without --reveal a section is printed unchanged)
         #[arg(long)]
         reveal: bool,
         /// Decrypt and copy the value to the clipboard instead of stdout (audited, macOS)
