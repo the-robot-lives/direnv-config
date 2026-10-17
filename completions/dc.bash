@@ -82,7 +82,7 @@ _dc() {
                 return
             fi ;;
         get)
-            opts="--raw --override --fallback --auto --default --reveal --clippy --reveal-restricted"
+            opts="--raw --override --fallback --auto --default --reveal --clippy --reveal-restricted --keys --redact --flat --paths"
             if [[ "$cur" != -* ]]; then
                 ((pos == 0)) && COMPREPLY=($(compgen -W "$(__dc_configs)" -- "$cur"))
                 return
