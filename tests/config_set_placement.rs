@@ -350,7 +350,9 @@ fn preview_shows_plus_line_at_real_insert_position() {
     // appear AFTER the ✚, never above it (the old bug rendered them as
     // if they were the parent).
     let ctx = stderr.find("┄┄ context ┄┄").expect("context header");
-    let arrow = stderr[ctx..].find("email: x").expect("arrow line (email)");
+    let arrow = stderr[ctx..]
+        .find("email: **redacted**")
+        .expect("arrow line (email, value masked)");
     let plus = stderr[ctx..].find("✚").expect("plus line");
     assert!(
         arrow < plus,
@@ -368,9 +370,15 @@ fn preview_shows_plus_line_at_real_insert_position() {
         .expect("arrow mark")
         .0;
     assert!(
-        stderr[marked..].contains("email: x"),
+        stderr[marked..].contains("email: **redacted**"),
         "➡ must mark the parent's last child, got:\n{}",
         &stderr[marked..marked + 120]
+    );
+    // §2d footgun: a write preview must never echo the sibling's value —
+    // the anchor renders as `email: **redacted**`, never `email: x`.
+    assert!(
+        !stderr.contains("email: x"),
+        "sibling value must not print in the preview:\n{stderr}"
     );
     if let Some(comment) = stderr[ctx..].find("# Sites") {
         assert!(
@@ -378,6 +386,64 @@ fn preview_shows_plus_line_at_real_insert_position() {
             "next section's comment must appear after the ✚, not as the parent:\n{stderr}"
         );
     }
+}
+
+/// §2d footgun (2026-10-18): the update-flow context window printed sibling
+/// lines verbatim — plaintext neighbour values and commented-out keys leaked
+/// into agent transcripts. Pre-existing lines now render key paths and
+/// structure only; the target's own old value is masked too (the ✚ line
+/// still shows the value being written — the user supplied it on the CLI).
+#[test]
+fn update_preview_masks_sibling_values() {
+    let (proj, tmp) = Proj::new("place7", "meta:\n  unused: 1\n");
+    proj.envrc(concat!(
+        "dc_yaml --no-bump fleet <<'YAML'\n",
+        "google:\n",
+        "  email: ops@example.com\n",
+        "  api_key: \"hunter2\"\n",
+        "  # rotated 2026: old_smtp_password: \"s3cret\"\n",
+        "smtp:\n",
+        "  host: mx.example.com\n",
+        "YAML\n",
+    ));
+    let out = proj.run(
+        &tmp,
+        &[
+            "config",
+            "set",
+            "fleet",
+            "google.email",
+            "--value",
+            "NEW",
+            "--plain",
+            "--yes",
+        ],
+        &[],
+    );
+    let (_stdout, stderr) = ok(&out, "config set update preview");
+    assert!(
+        stderr.contains("google.email"),
+        "target key path must be named:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("api_key: **redacted**"),
+        "neighbour key path stays visible, value masked:\n{stderr}"
+    );
+    for leak in ["hunter2", "s3cret", "ops@example.com", "mx.example.com"] {
+        assert!(
+            !stderr.contains(leak),
+            "sibling value `{leak}` must never print:\n{stderr}"
+        );
+    }
+    // The write itself is unaffected and the new value still previews.
+    assert!(
+        stderr.contains("email: \"NEW\""),
+        "the value being written previews intentionally:\n{stderr}"
+    );
+    assert!(
+        proj.read_envrc().contains("email: \"NEW\""),
+        "the update must still land"
+    );
 }
 
 // ---------------------------------------------------------------------------
