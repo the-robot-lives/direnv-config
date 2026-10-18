@@ -181,7 +181,10 @@ fn post_write_verify_or_restore(
 /// Insert-preview that renders the context around the REAL write position:
 /// the ✚ lines print exactly where they will land (after the ➡-marked
 /// line), not appended after the window — the previous rendering showed
-/// following sections as if they were the parent.
+/// following sections as if they were the parent. Pre-existing lines in the
+/// window render structure-only via [`redact_neighbour`] — a write preview
+/// must never echo sibling values (plaintext or encrypted) into the
+/// terminal/transcript.
 fn preview_insert(lines: &[String], idx: usize, new_lines: &[String], mode: ValueMode, generated: bool) {
     let start = idx.saturating_sub(2);
     let end = (idx + 3).min(lines.len());
@@ -193,9 +196,9 @@ fn preview_insert(lines: &[String], idx: usize, new_lines: &[String], mode: Valu
             }
         }
         if i + 1 == idx {
-            eprintln!("  ➡️  {}", redact_for_display(line));
+            eprintln!("  ➡️  {}", redact_neighbour(line));
         } else {
-            eprintln!("      {line}");
+            eprintln!("      {}", redact_neighbour(line));
         }
     }
     if idx >= lines.len() {
@@ -857,15 +860,19 @@ fn confirm_with(prompt: &str, is_tty: bool, input: &mut impl std::io::BufRead) -
     Ok(matches!(buf.trim().to_lowercase().as_str(), "y" | "yes"))
 }
 
-/// Print a context preview around a location, redacting secret values, and
-/// marking the line(s) being changed.
+/// Print a context preview around a location. Pre-existing lines render
+/// structure-only via [`redact_neighbour`] — key paths and shape, never
+/// sibling values — and the marked block shows the key path being written,
+/// with its old value masked too (`dc get --reveal` remains the only
+/// explicit-request display). `new_display` (the value being written)
+/// prints via the intentional-display rules in [`preview_line`].
 fn preview(lines: &[String], key_line: usize, last_line: usize, new_display: Option<&str>) {
     let start = key_line.saturating_sub(2);
     let end = (last_line + 3).min(lines.len());
     eprintln!("  ┄┄ context ┄┄");
     for (i, line) in lines.iter().enumerate().take(end).skip(start) {
         if i >= key_line && i <= last_line {
-            eprintln!("  ➡️  {}", redact_for_display(line));
+            eprintln!("  ➡️  {}", redact_neighbour(line));
             // The replacement lands exactly where the marked block sits, so
             // show the new value there — trailing it past the context window
             // reads as an append after the next section.
@@ -875,7 +882,7 @@ fn preview(lines: &[String], key_line: usize, last_line: usize, new_display: Opt
                 }
             }
         } else {
-            eprintln!("      {line}");
+            eprintln!("      {}", redact_neighbour(line));
         }
     }
 }
@@ -890,6 +897,30 @@ fn redact_for_display(line: &str) -> String {
         return format!("{prefix}**redacted**\"");
     }
     line.to_string()
+}
+
+/// Render a pre-existing line for a write-flow preview: key paths and
+/// structure only — never values. A `key: value` line (commented-out keys
+/// included) keeps its key and loses its value; section headers (`key:`),
+/// blank lines, and free-text comments pass through; anything else (block
+/// scalar bodies, list items, unmatched shapes) is masked wholesale — it
+/// cannot be shown to be value-free. This closes the §2d footgun: a
+/// `dc config set` context window previously printed neighbour lines
+/// verbatim, leaking sibling values (encrypted tokens included —
+/// [`redact_for_display`] only covered the ➡-marked line) into transcripts.
+fn redact_neighbour(line: &str) -> String {
+    let trimmed = line.trim_start();
+    if trimmed.is_empty() || (trimmed.starts_with('#') && !trimmed.contains(": ")) {
+        return line.to_string();
+    }
+    if let Some(pos) = line.find(": ") {
+        return format!("{}: **redacted**", &line[..pos]);
+    }
+    if trimmed.ends_with(':') {
+        return line.to_string();
+    }
+    let indent = &line[..line.len() - trimmed.len()];
+    format!("{indent}**redacted**")
 }
 
 /// A line being shown in a preview: literal-mode lines (`--plain` /
