@@ -1,5 +1,7 @@
 # Project Schema — Persistence & Config Artifacts
 
+〚📁:0e207cc7-6398-5789-810d-7d1a8ecef5e8〛 direnv-config PROJ-SCHEMA :: Persistence-free artifact map: store layout, .envrc heredocs, token formats
+
 > **No persistence layer.** `direnv-config` has **no database, no SQL schema, and no
 > Liquibase changelogs**. All persistence is file-based: YAML stores on disk, heredoc
 > blocks embedded in `.envrc` files, encrypted secret tokens, and remote address

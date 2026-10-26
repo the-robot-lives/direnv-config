@@ -1,5 +1,7 @@
 # direnv-config — Architecture
 
+〚📁:996ac0c7-a5e0-52d9-81f6-b0a3a69d5c45〛 direnv-config PROJ-ARCH :: Architecture overview: layer resolution, IPC, secrets, SDKs, remote sync
+
 Companion docs: security model in [THREAT-MODEL.md](THREAT-MODEL.md), component ↔ directory map in [PROJ-LAYOUT.md](PROJ-LAYOUT.md), task guides in [howto/](howto/).
 
 ## Overview

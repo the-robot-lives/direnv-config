@@ -1,3 +1,4 @@
+// 〚📁:a471fd2e-89a2-557a-ad34-c30a932b8bf3〛 direnv-config YAML merge :: Deep merge with _dc_pruned tombstones and dot-path expressions
 use serde_yaml::Value;
 
 /// Check whether a map value carries the tombstone marker `_dc_pruned: true`.

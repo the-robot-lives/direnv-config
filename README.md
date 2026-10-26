@@ -1,5 +1,7 @@
 # direnv-config
 
+〚📁:effdf8ed-f776-5603-acb6-8cce4062b103〛 direnv-config README :: Project entry point: overview, CLI reference, how-it-works
+
 **Repo:** https://github.com/the-robot-lives/direnv-config · MIT licensed
 
 `direnv-config` is a YAML-backed configuration layer for [direnv](https://direnv.net/). The `dc` CLI (Rust) plus a direnv shell library replace sprawling `export VAR=value` `.envrc` files with structured, versioned, mergeable YAML configs that flatten into env vars automatically. Key insight: env vars are write-once from a parent process's perspective — but state lives in files under `~/.local/state/direnv-config/{path-hash}/`, so any process (parent, child, sibling, Claude Code) can read or mutate shared config; every write bumps a monotonic version counter and holds an advisory `.lock` so concurrent shells can't clobber each other.
