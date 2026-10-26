@@ -11,11 +11,12 @@
 | `.envrc` | each project dir | Source of truth; `dc_yaml <name> <<'YAML'` heredoc per named config |
 | External YAML files | anywhere; registered in store `.meta` `external:` (path+mtime+size+load options, load order) | `dc load`/`dc_load` ingest: root mapping subject→body or `subjects:` wrapper; `_dc_layer:` routes per subject; same 🔒 encryption; later files win; `--if-missing` files seed once and are never re-ingested by a refresh; `--replace` never replayed |
 | State store | `$XDG_STATE_HOME/direnv-config/<path-hash>/` | Per-directory resolved config; `.version`, `.meta`, `<config>/{base,{DC_ENV},local,secrets}.yaml`, `.active`, `history/` |
-| Secret token | `secrets.yaml` layer | `🔒:v1:<ciphertext>` — XChaCha20-Poly1305; `❗`×0–3 tiers |
+| Secret token | `secrets.yaml` layer | `🔒:v1:t<tier>:<base64url(nonce‖ct‖tag)>` — XChaCha20-Poly1305; `t<tier>` = `❗`×0–3 sensitivity; legacy `dcenc:v1:` reads |
 | Key file | `~/.config/direnv-config/keys` (0600) | `{version: 1, key: base64-32}`; wins exclusively when present; `dc keys` status/migrate/lock/unlock |
 | Shadow store | `<project>/.secrets/restricted.config.yaml` | `dc config secure` target; `⛔` sentinel left behind |
 | settings.yaml | `~/.config/direnv-config/settings.yaml` | `audit_log` override; legacy `key` (only if key file absent) |
 | Audit log | store dir `audit.log` (0600) | Append-only reveal history |
+| Pointer store | repo-root `.meta/pointers.yaml` | Committed doc-pointer identity: UUIDv5 → kind, path, line, token, locations; owned by `doc-pointers build`, never hand-edited, never secret-bearing |
 | Golden fixtures | `demo/expected-state/*.yaml`, `sdk/contract-tests/expectations.yaml` | Resolution/SDK contracts |
 
 ## Layer resolution
@@ -33,7 +34,9 @@ not yet supported, #15); vanished registered files warn, not fail.
 
 ## Markers
 
-`🔒` secret · `❗`×0–3 tier · `🎲` generator placeholder · `⛔` restricted sentinel
+`🔒` secret · `❗`×0–3 tier · `🎲` generator placeholder · `⛔` restricted sentinel.
+Ingest follows the marker; IPC writes (`dc set` / `dc config set`) encrypt by
+default — `--plain` opts out.
 
 ## Remote schemes
 

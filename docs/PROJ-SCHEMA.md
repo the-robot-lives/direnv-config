@@ -82,6 +82,12 @@ dc_bump                          # finalize after batched writes
 | `🎲 <name> 🔒 <charset> <len>` | generator placeholder for `dc gen-secrets` |
 | `⛔` | restricted sentinel — value lives in shadow store only |
 
+The table describes **ingest** (`dc yaml` heredocs, `dc load` files). The IPC
+write path is stricter: `dc set` / `dc_set` encrypts by default and stores the
+value as a `🔒:v1` token — `--plain` is the opt-out. `dc config set` follows
+write intent rather than a marker: encrypt unless `--plain`, with `--numeric` /
+`--bool` for typed plain scalars and `--generate <KIND>` to mint a secret.
+
 ## External YAML files — `dc load`
 
 Config sources may also live in **plain YAML files** outside `.envrc`, ingested
@@ -198,7 +204,7 @@ resolves only the four files above plus the parent chain.
 
 | Artifact | Format | Notes |
 |----------|--------|-------|
-| Secret token | `🔒:v1:<ciphertext>` | XChaCha20-Poly1305 AEAD; key held in the external key file (preferred) or legacy `key:` in settings.yaml. Key rotation orphans existing tokens (loud failure) |
+| Secret token | `🔒:v1:t<tier>:<base64url(nonce‖ciphertext‖tag)>` | XChaCha20-Poly1305 AEAD; `t<tier>` is the `❗` sensitivity tier (0–3); legacy `dcenc:v1:` tokens still read. Key held in the external key file (preferred) or legacy `key:` in settings.yaml. Key rotation orphans existing tokens (loud failure) |
 | Key file | `~/.config/direnv-config/keys` (0600) | `{version: 1, key: <base64 32-byte>}`; path via `$DC_KEYS_FILE` → `$XDG_CONFIG_HOME/...` → default. Present ⇒ used exclusively (no silent fallback); root-ownable/lockable via `dc keys lock`, reversed by `unlock`; `dc keys migrate` moves a legacy key out of settings.yaml after a full decrypt round-trip verification |
 | Shadow store | `<project>/.secrets/restricted.config.yaml` | Created by `dc config secure`; store + `.envrc` keep only a `⛔` sentinel; requires `--reveal-restricted` |
 | Audit log | `$audit_log` or `~/.local/state/direnv-config/audit.log` | Append-only, mode 0600; records every `--reveal` / `--clippy` / `--reveal-restricted` |
@@ -212,6 +218,32 @@ Path resolution: `$DC_SETTINGS` → `$XDG_CONFIG_HOME/direnv-config/settings.yam
 |-----|------|----------|-------------|
 | `key` | string | No (legacy) | base64-encoded 32-byte XChaCha20-Poly1305 key. Superseded by the external key file; used only when that file is absent. Move via `dc keys migrate` |
 | `audit_log` | string | No | Override audit-log path |
+
+## `.meta/pointers.yaml` (repo-level pointer store)
+
+Documentation identity, not configuration: the doc-pointer store at the repo
+root maps a durable UUIDv5 to the locus it identifies. It lives **inside the
+repository** (committed), is owned by `doc-pointers build --write`, and is
+never hand-edited. Source files carry the declaration marker
+`〚<kind emoji>:<uuid>〛 <name> :: <description>`; the short hieroglyph `token`
+is a generated lookup alias, not an identity.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `<uuid>` (mapping key) | UUIDv5 | Pointer identity; the only stable handle |
+| `kind` | string | `file`, `module`, `class`, `struct`, `interface`, `protocol`, `behaviour`, `function`, `logic`, `component`, `diagram` |
+| `file_path` | string | Repo-relative path of the owning locus |
+| `line` | int | Line of the current declaration |
+| `function` | string | Pointer name (free-form label) |
+| `description` | string | One-line purpose — **never** a value or credential |
+| `token` | string | 4-glyph legacy lookup alias derived from the UUID |
+| `locations` | list of `{file_path, line}` | Every occurrence (multi-file components share one UUID) |
+| `created_at` / `updated_at` | timestamp | Bookkeeping |
+
+Constraints: entries are keyed by UUID and never re-keyed; a moved locus keeps
+its UUID and updates `locations`; markers exist only in scanner-registered file
+extensions (JSON cannot carry them) and are deliberately **not** placed in
+secret-bearing sources.
 
 ## Remote address schemes
 

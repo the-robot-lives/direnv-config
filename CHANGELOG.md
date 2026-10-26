@@ -3,6 +3,7 @@
 ## 2026-10-26
 
 - docs: correct stale "main is CI/CD-only" deploy note — merging into main triggers CI/CD (user-verified 2026-10-26)
+- docs: 2026-10-26 doc sweep — `.meta/pointers.yaml` seeded with 10 file pointers (#48); layout/arch/schema/threat-model refreshed: `dc config unset`·`--generate`·`dc get --keys` covered, token form `🔒:v1:t<tier>:<payload>` documented, new register entry T-009 (write-preview disclosure) with corrected mitigation counts
 
 ## 2026-10-18
 - fix(config): `dc config set`/`setall` write previews (update + insert context windows) render pre-existing lines structure-only — a `key: value` line (commented-out keys included) keeps its key and loses its value (`**redacted**`), section headers / blank lines / free-text comments pass through, and anything else (block-scalar bodies, list items, unmatched shapes) is masked wholesale; the ➡-marked line's old value is masked too (previously `redact_for_display` only covered encrypted `🔒:v1`/`dcenc:v1` tokens on that ONE line and every other window line printed verbatim — the §2d footgun that leaked sibling values, plaintext and ciphertext alike, into terminals and agent transcripts on every write preview). The ✚ line still previews the value being written (explicitly supplied by the caller), and explicit-request displays (`dc get --reveal`, `dc bat --reveal`) are unchanged. Tests: `update_preview_masks_sibling_values` + updated placement preview assertions in `tests/config_set_placement.rs` (PR pending)

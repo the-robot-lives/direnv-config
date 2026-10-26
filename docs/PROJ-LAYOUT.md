@@ -37,7 +37,7 @@ direnv-config/
 ├── helm/
 │   └── dirconfig-site/         # Helm chart deploying the web/ site (deployment, service, ingress)
 ├── docs/                       # Documentation
-│   ├── arch/                   #   Internals: flatten rules, layer resolution, parent chain
+│   ├── arch/                   #   Internals: layer resolution, parent chain, flatten rules, source sync, secrets+sealing, IPC, remote sync, SDK backends
 │   ├── howto/                  #   Task guides (first-hour, manage-secrets, migrate-envrc, sync-secrets-remote, use-sdk-from-app-code)
 │   ├── layout/                 #   Per-directory breakdowns (src.md, sdk.md, web.md)
 │   ├── PROJ-ARCH/-SCHEMA/-HOWTO/-FAQ .md  # Overviews, each with a .summary.md digest
@@ -54,6 +54,8 @@ direnv-config/
 ├── README.md                   # Project overview, CLI reference, how-it-works
 ├── CLAUDE.md                   # Agent guidance (Claude Code)
 ├── AGENTS.md / AGENT.md        # Harness-shaped sibling rules (Codex/Grok/Cursor) + mirror
+├── .meta/
+│   └── pointers.yaml           # Doc-pointer store: UUID → file identity, token, locations (doc-pointers build --check)
 └── .gitignore                  # Excludes: target/, .env, .envrc.local, .claude/worktrees/
 ```
 

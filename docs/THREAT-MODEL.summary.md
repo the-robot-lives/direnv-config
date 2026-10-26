@@ -18,8 +18,12 @@ separation between `dc` and other same-user processes. Full reference:
 | T-006 | Medium | Info disclosure — accidental commits | Partial (gitignored; shadow store in-tree) |
 | T-007 | Low | Spoofing/tampering — remote backends | Mitigated (rustls TLS, digests) |
 | T-008 | Low | Tampering — supply chain | Partial (lockfile; no signing) |
+| T-009 | High | Info disclosure — write previews / generated values in terminals and transcripts | Mitigated (preview masks non-target lines, `--generate` never echoes) |
+
+Coverage: 4 mitigated · 4 partial · 1 accepted.
 
 ## Residual risk
 
 Same-user compromise = game over (accepted for a single-operator tool);
-root-owned key file raises the bar for non-root exfiltration only.
+root-owned key file raises the bar for non-root exfiltration only. Preview
+masking lowers accidental exposure but is not an access control.

@@ -27,5 +27,6 @@ direnv-config/
 ├── LICENSE                     # MIT
 ├── README.md                   # Overview + CLI reference
 ├── CLAUDE.md                   # Agent guidance (AGENTS.md / AGENT.md siblings)
+├── .meta/pointers.yaml         # Doc-pointer store (UUID → file identity)
 └── .gitignore                  # target/, .env, .envrc.local, .claude/worktrees/
 ```
