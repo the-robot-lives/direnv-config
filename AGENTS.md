@@ -22,10 +22,10 @@ All work happens on git worktrees, created from **this repo's own `.git`** — n
 - **Addressing:** `git -C <this-repo>/.claude/worktrees/<name> …`; verify branch + clean index before any git write; no `git stash`.
 - **Elixir projects:** the MAIN checkout owns `deps/` + `_build/`; each worktree symlinks `deps` (and `_build` where needed) to the canonical checkout by **absolute path** — no per-worktree re-fetch/recompile.
 - **Legacy placements** (`.worktrees/`, `.wt/`, `<repo>.worktrees/` siblings, `staging/`) are grandfathered — do not create new ones; migrate opportunistically. `staging/` remains local-only experiments (never pushed/submoduled).
-- **Branch & PR policy unchanged:** worktree branches fork from `develop`; PRs target `develop`; `main` is CI/CD-only (automation merges only).
+- **Branch & PR policy unchanged:** worktree branches fork from `develop`; PRs target `develop`; `main` is release-triggered (a merge into it triggers CI/CD).
 
 
-4. **PRs target `develop`.** Never merge or push `main` (CI/CD-only release path).
+4. **PRs target `develop`.** A merge into `main` triggers CI/CD (release path); promotions land via `stage` → `main` PRs.
 
 ## Identity
 
@@ -44,7 +44,7 @@ make install   # install binaries/completions to ~/.local/bin
 
 - Submodules sit on **`develop`** — keep your checkout on `develop`.
 - All PRs target **`develop`** (feature/bug/task branches fork from `develop`).
-- **`main` is CI/CD-only**: CI/CD automation performs all merges into `main` (release path). Never merge to or push `main` by hand.
+- **`main` is release-triggered**: a merge into `main` triggers CI/CD (image build → `bump-chart` → ArgoCD sync). Promotions land via `stage` → `main` PRs per the monorepo merge matrix.
 
 ## Pointers
 
