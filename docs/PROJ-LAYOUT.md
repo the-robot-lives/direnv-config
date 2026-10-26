@@ -1,5 +1,7 @@
 # Project Layout
 
+〚📁:eecedc75-e213-5654-b1b1-f79792e2b144〛 direnv-config PROJ-LAYOUT :: Repository tree map and installed locations
+
 `direnv-config` — YAML-backed configuration + secrets layer for [direnv](https://direnv.net/). Rust CLI (`dc`) with multi-language SDK clients, secret encryption, and Infisical/Kubernetes integration.
 
 ```

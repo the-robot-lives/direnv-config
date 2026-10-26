@@ -1,3 +1,4 @@
+// 〚📁:1617b78a-0eb6-5eec-8528-d0e7c26386dc〛 direnv-config store resolution :: Store discovery, path-hash naming, four-layer resolution and parent chain
 use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde_yaml::Value;

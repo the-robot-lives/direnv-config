@@ -1,3 +1,4 @@
+// 〚📁:da03f5d0-0e8f-5475-9b75-dfffadcdc3d0〛 direnv-config CLI entry point :: dc binary entry point: clap command tree and dispatch
 mod audit;
 mod cmd;
 mod crypto;

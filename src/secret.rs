@@ -1,3 +1,4 @@
+// 〚📁:5c723d83-cc25-50c9-886e-8f80ff5784ab〛 direnv-config secret marking :: Secret detection, tier marking, redaction and locking sentinels
 //! Secret marking scheme and the split-and-encrypt walker.
 //!
 //! A YAML scalar is a *secret* when its trimmed content begins with the padlock

@@ -1,0 +1,122 @@
+---
+pointers:
+  0e207cc7-6398-5789-810d-7d1a8ecef5e8:
+    created_at: 2026-10-26T21:41:00.970016Z
+    description: 'Persistence-free artifact map: store layout, .envrc heredocs, token formats'
+    file_path: docs/PROJ-SCHEMA.md
+    function: direnv-config PROJ-SCHEMA
+    kind: file
+    line: 3
+    locations:
+      - file_path: docs/PROJ-SCHEMA.md
+        line: 3
+    token: 𓠀𓓙𓨎𓧘
+    updated_at: 2026-10-26T21:41:00.970016Z
+  146f080a-6a82-529d-9f15-02ba272cf7c9:
+    created_at: 2026-10-26T21:41:00.970030Z
+    description: Value resolution precedence, redaction, reveal and shape-only --keys output
+    file_path: src/cmd/get.rs
+    function: direnv-config get command
+    kind: file
+    line: 1
+    locations:
+      - file_path: src/cmd/get.rs
+        line: 1
+    token: 𔐝𓣌𓫑𓄹
+    updated_at: 2026-10-26T21:41:00.970030Z
+  1617b78a-0eb6-5eec-8528-d0e7c26386dc:
+    created_at: 2026-10-26T21:41:00.969991Z
+    description: Store discovery, path-hash naming, four-layer resolution and parent chain
+    file_path: src/store/resolve.rs
+    function: direnv-config store resolution
+    kind: file
+    line: 1
+    locations:
+      - file_path: src/store/resolve.rs
+        line: 1
+    token: 𓓽𓞓𓲸𓩬
+    updated_at: 2026-10-26T21:41:00.969991Z
+  5c723d83-cc25-50c9-886e-8f80ff5784ab:
+    created_at: 2026-10-26T21:41:00.970001Z
+    description: Secret detection, tier marking, redaction and locking sentinels
+    file_path: src/secret.rs
+    function: direnv-config secret marking
+    kind: file
+    line: 1
+    locations:
+      - file_path: src/secret.rs
+        line: 1
+    token: 𓕤𓬨𔙚𔁛
+    updated_at: 2026-10-26T21:41:00.970001Z
+  996ac0c7-a5e0-52d9-81f6-b0a3a69d5c45:
+    created_at: 2026-10-26T21:41:00.969968Z
+    description: 'Architecture overview: layer resolution, IPC, secrets, SDKs, remote sync'
+    file_path: docs/PROJ-ARCH.md
+    function: direnv-config PROJ-ARCH
+    kind: file
+    line: 3
+    locations:
+      - file_path: docs/PROJ-ARCH.md
+        line: 3
+    token: 𓎿𓶛𓇛𓅕
+    updated_at: 2026-10-26T21:41:00.969968Z
+  a471fd2e-89a2-557a-ad34-c30a932b8bf3:
+    created_at: 2026-10-26T21:41:00.970019Z
+    description: Deep merge with _dc_pruned tombstones and dot-path expressions
+    file_path: src/yaml/merge.rs
+    function: direnv-config YAML merge
+    kind: file
+    line: 1
+    locations:
+      - file_path: src/yaml/merge.rs
+        line: 1
+    token: 𓠞𓞡𓈈𓦃
+    updated_at: 2026-10-26T21:41:00.970019Z
+  da03f5d0-0e8f-5475-9b75-dfffadcdc3d0:
+    created_at: 2026-10-26T21:41:00.970026Z
+    description: 'dc binary entry point: clap command tree and dispatch'
+    file_path: src/main.rs
+    function: direnv-config CLI entry point
+    kind: file
+    line: 1
+    locations:
+      - file_path: src/main.rs
+        line: 1
+    token: 𔃨𔔘𓞫𔘐
+    updated_at: 2026-10-26T21:41:00.970026Z
+  eecedc75-e213-5654-b1b1-f79792e2b144:
+    created_at: 2026-10-26T21:41:00.970012Z
+    description: Repository tree map and installed locations
+    file_path: docs/PROJ-LAYOUT.md
+    function: direnv-config PROJ-LAYOUT
+    kind: file
+    line: 3
+    locations:
+      - file_path: docs/PROJ-LAYOUT.md
+        line: 3
+    token: 𓚬𓪫𔌮𔔴
+    updated_at: 2026-10-26T21:41:00.970012Z
+  effdf8ed-f776-5603-acb6-8cce4062b103:
+    created_at: 2026-10-26T21:41:00.970023Z
+    description: 'Project entry point: overview, CLI reference, how-it-works'
+    file_path: README.md
+    function: direnv-config README
+    kind: file
+    line: 3
+    locations:
+      - file_path: README.md
+        line: 3
+    token: 𓣣𓱺𓻀𓨓
+    updated_at: 2026-10-26T21:41:00.970023Z
+  f3d31648-73c7-5d34-b97d-be7278edb2de:
+    created_at: 2026-10-26T21:41:00.969997Z
+    description: 'Living threat model: trust boundaries, vulnerability register, mitigations'
+    file_path: docs/THREAT-MODEL.md
+    function: direnv-config THREAT-MODEL
+    kind: file
+    line: 3
+    locations:
+      - file_path: docs/THREAT-MODEL.md
+        line: 3
+    token: 𓔬𓹬𓕅𓆎
+    updated_at: 2026-10-26T21:41:00.969997Z

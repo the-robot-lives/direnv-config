@@ -1,5 +1,7 @@
 # Threat Model
 
+〚📁:f3d31648-73c7-5d34-b97d-be7278edb2de〛 direnv-config THREAT-MODEL :: Living threat model: trust boundaries, vulnerability register, mitigations
+
 > Security counterpart to [PROJ-ARCH.md](PROJ-ARCH.md). Workstation-local config
 > and secrets tooling: the assets are secret material and the shell environments
 > `dc` populates; the adversary model is (a) malicious/compromised same-host
